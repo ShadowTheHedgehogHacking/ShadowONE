@@ -38,10 +38,11 @@ namespace ShadowONE.Services
         private string? _currentFilePath;
         private ONEArchiveType _archiveType;
         private readonly HashSet<string> _modifiedFiles = new();
+        private bool _isDirty;
 
         public bool IsFileOpen => _currentArchive != null;
 
-        public bool HasUnsavedChanges => _modifiedFiles.Count > 0;
+        public bool HasUnsavedChanges => _isDirty || _modifiedFiles.Count > 0;
 
         public string? ArchiveTypeName
         {
@@ -107,6 +108,7 @@ namespace ShadowONE.Services
             _archiveType = ONEArchiveTester.GetArchiveType(ref fileData);
             _currentArchive = Archive.FromONEFile(ref fileData);
             _modifiedFiles.Clear();
+            _isDirty = false;
 
             return GetFileEntries();
         }
@@ -167,6 +169,7 @@ namespace ShadowONE.Services
                 file.Name = entry.FileName;
                 file.CompressedData = Prs.CompressData(fileData);
                 _modifiedFiles.Add(entry.FileName);
+                _isDirty = true;
             }
         }
 
@@ -181,6 +184,7 @@ namespace ShadowONE.Services
             if (file != null)
             {
                 _currentArchive.Files.Remove(file);
+                _isDirty = true;
             }
         }
 
@@ -198,6 +202,7 @@ namespace ShadowONE.Services
 
             var newFile = new ArchiveFile(filePath, _currentArchive.RwVersion);
             _currentArchive.Files.Add(newFile);
+            _isDirty = true;
         }
 
         public void UpdateRwVersion(string fileName, uint version, uint major, uint minor, uint revision, ushort buildNumber)
@@ -216,6 +221,7 @@ namespace ShadowONE.Services
                 file.RwVersion.SetRevision(revision);
                 file.RwVersion.SetBuild(buildNumber);
                 _modifiedFiles.Add(fileName);
+                _isDirty = true;
             }
         }
 
@@ -232,6 +238,7 @@ namespace ShadowONE.Services
                 file.Name = newFileName;
                 _modifiedFiles.Remove(oldFileName);
                 _modifiedFiles.Add(newFileName);
+                _isDirty = true;
             }
         }
 
@@ -255,6 +262,7 @@ namespace ShadowONE.Services
 
             File.WriteAllBytes(_currentFilePath, fileData.ToArray());
             _modifiedFiles.Clear();
+            _isDirty = false;
         }
 
         public void SaveChangesAs(string newFilePath)
@@ -278,6 +286,7 @@ namespace ShadowONE.Services
             File.WriteAllBytes(newFilePath, fileData.ToArray());
             _currentFilePath = newFilePath;
             _modifiedFiles.Clear();
+            _isDirty = false;
         }
 
         public void SetArchiveRwVersion(uint version, uint major, uint minor, uint revision, ushort buildNumber)
@@ -292,6 +301,7 @@ namespace ShadowONE.Services
             _currentArchive.RwVersion.SetMinor(minor);
             _currentArchive.RwVersion.SetRevision(revision);
             _currentArchive.RwVersion.SetBuild(buildNumber);
+            _isDirty = true;
         }
 
         public (uint Version, uint Major, uint Minor, uint Revision, ushort BuildNumber) GetArchiveRwVersion()
@@ -348,6 +358,8 @@ namespace ShadowONE.Services
                 file.RwVersion.SetBuild(buildNumber);
                 _modifiedFiles.Add(file.Name);
             }
+
+            _isDirty = true;
         }
 
         public List<string>? SortByExtensions()
@@ -410,6 +422,7 @@ namespace ShadowONE.Services
                 }
             }
 
+            _isDirty = true;
             return null;
         }
 
@@ -443,6 +456,7 @@ namespace ShadowONE.Services
 
             _modifiedFiles.Add(file.Name);
             _modifiedFiles.Add(otherFile.Name);
+            _isDirty = true;
 
             return true;
         }
@@ -477,6 +491,7 @@ namespace ShadowONE.Services
 
             _modifiedFiles.Add(file.Name);
             _modifiedFiles.Add(otherFile.Name);
+            _isDirty = true;
 
             return true;
         }

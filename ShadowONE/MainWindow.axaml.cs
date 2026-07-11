@@ -22,6 +22,7 @@ namespace ShadowONE
         private readonly OneFileService _oneFileService;
         private string? _currentFilePath;
         private string? _lastDialogFolder;
+        private bool _suppressCloseCheck;
 
         public MainWindow()
         {
@@ -58,6 +59,28 @@ namespace ShadowONE
             }
         }
 
+        protected override async void OnClosing(WindowClosingEventArgs e)
+        {
+            if (!_suppressCloseCheck && _oneFileService.IsFileOpen && _oneFileService.HasUnsavedChanges)
+            {
+                e.Cancel = true;
+                _suppressCloseCheck = true;
+                var confirm = await ShowConfirmDialog("Unsaved Changes",
+                    $"There are unsaved changes.{Environment.NewLine}{Environment.NewLine}Close anyway?");
+                if (confirm)
+                {
+                    Close();
+                }
+                else
+                {
+                    _suppressCloseCheck = false;
+                }
+                return;
+            }
+
+            base.OnClosing(e);
+        }
+
         public async void OpenOneFile(string filePath)
         {
             try
@@ -85,7 +108,8 @@ namespace ShadowONE
 
             var archiveType = _oneFileService.ArchiveTypeName ?? "Unknown";
             var fileCount = _viewModel.FilteredFiles.Count;
-            Title = $"{Path.GetFileName(_currentFilePath)} | {archiveType} | {_oneFileService.ArchiveRwVersion} | Files: {fileCount}";
+            var prefix = _oneFileService.HasUnsavedChanges ? "* " : "";
+            Title = $"{prefix}{Path.GetFileName(_currentFilePath)} | {archiveType} | {_oneFileService.ArchiveRwVersion} | Files: {fileCount}";
         }
 
         private async Task<IStorageFolder?> TryGetStorageFolderFromPath(string? path)
@@ -136,6 +160,7 @@ namespace ShadowONE
                     _oneFileService.SaveChanges();
                     var entries = _oneFileService.GetFileEntries();
                     _viewModel.LoadFiles(entries);
+                    UpdateWindowTitle();
                 }
                 catch (Exception ex)
                 {
@@ -264,6 +289,7 @@ namespace ShadowONE
                     _oneFileService.RenameFile(selectedFile.FileName, newName);
                     var entries = _oneFileService.GetFileEntries();
                     _viewModel.LoadFiles(entries);
+                    UpdateWindowTitle();
                     
                     var newIndex = -1;
                     for (int i = 0; i < _viewModel.FilteredFiles.Count; i++)
@@ -314,6 +340,7 @@ namespace ShadowONE
                     _oneFileService.ReplaceFile(selectedFile, files[0].Path.LocalPath);
                     var entries = _oneFileService.GetFileEntries();
                     _viewModel.LoadFiles(entries);
+                    UpdateWindowTitle();
                     
                     var newIndex = -1;
                     for (int i = 0; i < _viewModel.FilteredFiles.Count; i++)
@@ -402,6 +429,7 @@ namespace ShadowONE
             if (_oneFileService.MoveFileUp(selectedFile))
             {
                 RefreshFileListAndSelect(selectedFile.FileName);
+                UpdateWindowTitle();
             }
         }
 
@@ -415,6 +443,7 @@ namespace ShadowONE
             if (_oneFileService.MoveFileDown(selectedFile))
             {
                 RefreshFileListAndSelect(selectedFile.FileName);
+                UpdateWindowTitle();
             }
         }
 
@@ -454,6 +483,7 @@ namespace ShadowONE
                 _oneFileService.UpdateRwVersion(selectedFile.FileName, version, major, minor, revision, buildNumber);
                 var entries = _oneFileService.GetFileEntries();
                 _viewModel.LoadFiles(entries);
+                UpdateWindowTitle();
             });
 
             await dialog.ShowDialog(this);
@@ -511,6 +541,7 @@ namespace ShadowONE
                 _oneFileService.SetAllFileRwVersion(version, major, minor, revision, buildNumber);
                 var entries = _oneFileService.GetFileEntries();
                 _viewModel.LoadFiles(entries);
+                UpdateWindowTitle();
             });
 
             await dialog.ShowDialog(this);
@@ -593,6 +624,7 @@ namespace ShadowONE
 
             var entries = _oneFileService.GetFileEntries();
             _viewModel.LoadFiles(entries);
+            UpdateWindowTitle();
         }
 
         private void Window_KeyDown(object? sender, KeyEventArgs e)
@@ -736,6 +768,57 @@ namespace ShadowONE
             dialog.Content = panel;
 
             await dialog.ShowDialog(this);
+        }
+
+        private async Task<bool> ShowConfirmDialog(string title, string message)
+        {
+            var dialog = new Window
+            {
+                Title = title,
+                Width = 240,
+                Height = 130,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
+            };
+            WindowsTitleBarHelper.SetDarkTitleBar(dialog);
+
+            var panel = new StackPanel { Margin = new Thickness(15), Spacing = 10 };
+
+            var textBlock = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
+            panel.Children.Add(textBlock);
+
+            var buttonPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Spacing = 10
+            };
+
+            var yesButton = new Button { Content = "Yes", Width = 80 };
+            var noButton = new Button { Content = "No", Width = 80 };
+
+            var result = false;
+            yesButton.Click += (s, args) =>
+            {
+                result = true;
+                dialog.Close();
+            };
+            noButton.Click += (s, args) =>
+            {
+                result = false;
+                dialog.Close();
+            };
+
+            buttonPanel.Children.Add(yesButton);
+            buttonPanel.Children.Add(noButton);
+            panel.Children.Add(buttonPanel);
+
+            dialog.Content = panel;
+
+            yesButton.AttachedToVisualTree += (s, e) => yesButton.Focus();
+
+            await dialog.ShowDialog(this);
+            return result;
         }
 
         private async Task<string?> ShowInputDialog(string title, string prompt, string defaultValue)
