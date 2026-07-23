@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Avalonia;
@@ -10,6 +12,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using ShadowONE.Models;
 using ShadowONE.Services;
 using ShadowONE.ViewModels;
@@ -24,6 +27,9 @@ namespace ShadowONE
         private string? _lastDialogFolder;
         private bool _suppressCloseCheck;
 
+        private static readonly DataFormat<string> InternalDragFormat =
+            DataFormat.CreateInProcessFormat<string>("ShadowONE-Internal-Reorder");
+
         public MainWindow()
         {
             InitializeComponent();
@@ -33,7 +39,12 @@ namespace ShadowONE
             DataContext = _viewModel;
             
             this.AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
-            
+
+            FilesListBox.AddHandler(InputElement.PointerPressedEvent,
+                FilesListBox_PointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+            this.AddHandler(DragDrop.DragOverEvent, Window_DragOver);
+            this.AddHandler(DragDrop.DropEvent, Window_Drop);
+
             LoadIcon();
             UpdateWindowTitle();
         }
@@ -467,6 +478,207 @@ namespace ShadowONE
                 FilesListBox.SelectedIndex = newIndex;
                 FilesListBox.ScrollIntoView(newIndex);
                 FilesListBox.ContainerFromIndex(newIndex)?.Focus();
+            }
+        }
+
+        private async void FilesListBox_PointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (!_oneFileService.IsFileOpen)
+            {
+                return;
+            }
+
+            if (!e.GetCurrentPoint(FilesListBox).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+
+            var point = e.GetPosition(FilesListBox);
+            var hit = FilesListBox.InputHitTest(point) as Visual;
+            var listItem = hit?.FindAncestorOfType<ListBoxItem>();
+            if (listItem?.DataContext is not FileEntry entry)
+            {
+                return;
+            }
+
+            var sourceIndex = _oneFileService.GetFileIndex(entry.FileName);
+            if (sourceIndex < 0)
+            {
+                return;
+            }
+
+            List<string> tempPaths;
+            try
+            {
+                tempPaths = _oneFileService.ExtractFilesToTemp(new[] { entry });
+            }
+            catch (Exception ex)
+            {
+                await ShowError($"Error preparing files for drag: {ex.Message}");
+                return;
+            }
+
+            var dataTransfer = new DataTransfer();
+            dataTransfer.Add(DataTransferItem.Create(InternalDragFormat, entry.FileName));
+
+            foreach (var path in tempPaths)
+            {
+                var storageFile = await StorageProvider.TryGetFileFromPathAsync(path);
+                if (storageFile != null)
+                {
+                    dataTransfer.Add(DataTransferItem.CreateFile(storageFile));
+                }
+            }
+
+            await DragDrop.DoDragDropAsync(e, dataTransfer, DragDropEffects.Copy | DragDropEffects.Move);
+        }
+
+        private void Window_DragOver(object? sender, DragEventArgs e)
+        {
+            if (e.DataTransfer.Contains(InternalDragFormat) && _oneFileService.IsFileOpen)
+            {
+                e.DragEffects = DragDropEffects.Move;
+            }
+            else if (e.DataTransfer.Contains(DataFormat.File))
+            {
+                e.DragEffects = DragDropEffects.Copy;
+            }
+            else
+            {
+                e.DragEffects = DragDropEffects.None;
+            }
+        }
+
+        private async void Window_Drop(object? sender, DragEventArgs e)
+        {
+            e.Handled = true;
+
+            if (e.DataTransfer.Contains(InternalDragFormat) && _oneFileService.IsFileOpen)
+            {
+                var sourceFileName = e.DataTransfer.TryGetValue(InternalDragFormat);
+                if (string.IsNullOrEmpty(sourceFileName))
+                {
+                    return;
+                }
+
+                var targetArchiveIndex = GetDropTargetArchiveIndex(e);
+                if (targetArchiveIndex < 0)
+                {
+                    targetArchiveIndex = _oneFileService.GetFileCount();
+                }
+
+                var sourceIndex = _oneFileService.GetFileIndex(sourceFileName);
+                if (sourceIndex >= 0 && targetArchiveIndex != sourceIndex)
+                {
+                    _oneFileService.MoveFileToIndex(sourceFileName, targetArchiveIndex);
+                    var entries = _oneFileService.GetFileEntries();
+                    _viewModel.LoadFiles(entries);
+                    UpdateWindowTitle();
+                }
+
+                return;
+            }
+
+            if (!e.DataTransfer.Contains(DataFormat.File))
+            {
+                return;
+            }
+
+            var files = e.DataTransfer.TryGetFiles();
+            if (files == null || files.Length == 0)
+            {
+                return;
+            }
+
+            var paths = files.Select(f => f.Path.LocalPath).ToList();
+
+            if (paths.Count == 1 && Path.GetExtension(paths[0]).Equals(".one", StringComparison.OrdinalIgnoreCase))
+            {
+                OpenOneFile(paths[0]);
+                return;
+            }
+
+            if (!_oneFileService.IsFileOpen)
+            {
+                return;
+            }
+
+            try
+            {
+                var nonMatching = new List<string>();
+                foreach (var path in paths)
+                {
+                    if (!_oneFileService.ReplaceFileByName(path))
+                    {
+                        nonMatching.Add(path);
+                    }
+                }
+
+                if (nonMatching.Count > 0)
+                {
+                    var selectedName = (FilesListBox.SelectedItem as FileEntry)?.FileName;
+                    var baseIndex = !string.IsNullOrEmpty(selectedName)
+                        ? _oneFileService.GetFileIndex(selectedName!) + 1
+                        : _oneFileService.GetFileCount();
+
+                    for (int i = 0; i < nonMatching.Count; i++)
+                    {
+                        _oneFileService.InsertFile(baseIndex + i, nonMatching[i]);
+                    }
+                }
+
+                var entries = _oneFileService.GetFileEntries();
+                _viewModel.LoadFiles(entries);
+                UpdateWindowTitle();
+            }
+            catch (Exception ex)
+            {
+                await ShowError($"Error adding files: {ex.Message}");
+            }
+        }
+
+        private int GetDropTargetArchiveIndex(DragEventArgs e)
+        {
+            var point = e.GetPosition(FilesListBox);
+            var hit = FilesListBox.InputHitTest(point) as Visual;
+            var listItem = hit?.FindAncestorOfType<ListBoxItem>();
+            if (listItem == null)
+            {
+                return -1;
+            }
+
+            var filteredIndex = FilesListBox.IndexFromContainer(listItem);
+            if (filteredIndex < 0 || filteredIndex >= _viewModel.FilteredFiles.Count)
+            {
+                return -1;
+            }
+
+            var targetEntry = _viewModel.FilteredFiles[filteredIndex];
+            return _oneFileService.GetFileIndex(targetEntry.FileName);
+        }
+
+        private async void FilesListBox_DoubleTapped(object? sender, TappedEventArgs e)
+        {
+            if (FilesListBox.SelectedItem is not FileEntry selectedFile)
+            {
+                return;
+            }
+
+            try
+            {
+                var tempPath = _oneFileService.ExtractFileToTempForLaunch(selectedFile);
+                if (GetTopLevel(this)?.Launcher is { } launcher)
+                {
+                    var storageFile = await StorageProvider.TryGetFileFromPathAsync(tempPath);
+                    if (storageFile != null)
+                    {
+                        await launcher.LaunchFileAsync(storageFile);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                await ShowError($"Error opening file: {ex.Message}");
             }
         }
 

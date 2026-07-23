@@ -10,6 +10,7 @@
         MinWidth="100" MinHeight="100"
         Width="500" Height="500"
         x:DataType="viewModels:MainWindowViewModel"
+        DragDrop.AllowDrop="True"
         KeyDown="MainWindow_KeyDown">
     
     <Design.DataContext>
@@ -61,7 +62,8 @@
                           SelectionMode="Single,Toggle"
                           IsVisible="{Binding HasFileOpen}"
                           ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                          Padding="0,0,15,0">
+                          Padding="0,0,15,0"
+                          DoubleTapped="FilesListBox_DoubleTapped">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="models:FileEntry">
                             <Grid ColumnDefinitions="2*,1*">

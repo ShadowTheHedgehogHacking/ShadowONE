@@ -149,6 +149,165 @@ namespace ShadowONE.Services
             }
         }
 
+        public List<string> ExtractFilesToTemp(IEnumerable<FileEntry> entries)
+        {
+            if (_currentArchive == null)
+            {
+                throw new InvalidOperationException("No file is currently open");
+            }
+
+            var tempDir = Path.Combine(Path.GetTempPath(), "ShadowONE_DragDrop");
+            if (Directory.Exists(tempDir))
+            {
+                try
+                {
+                    Directory.Delete(tempDir, true);
+                }
+                catch
+                {
+                    // ignored - best effort cleanup of previous staging files
+                }
+            }
+            Directory.CreateDirectory(tempDir);
+
+            var paths = new List<string>();
+            foreach (var entry in entries)
+            {
+                var safeName = Path.GetFileName(entry.FileName);
+                if (string.IsNullOrEmpty(safeName))
+                {
+                    safeName = entry.FileName;
+                }
+
+                foreach (var c in Path.GetInvalidFileNameChars())
+                {
+                    safeName = safeName.Replace(c, '_');
+                }
+
+                var outputPath = Path.Combine(tempDir, safeName);
+                var decompressedData = ExtractFile(entry);
+                File.WriteAllBytes(outputPath, decompressedData);
+                paths.Add(outputPath);
+            }
+
+            return paths;
+        }
+
+        public string ExtractFileToTempForLaunch(FileEntry entry)
+        {
+            var safeName = Path.GetFileName(entry.FileName);
+            if (string.IsNullOrEmpty(safeName))
+            {
+                safeName = entry.FileName;
+            }
+
+            var tempPath = Path.Combine(Path.GetTempPath(), safeName);
+            var data = ExtractFile(entry);
+            File.WriteAllBytes(tempPath, data);
+            return tempPath;
+        }
+
+        public int GetFileCount()
+        {
+            return _currentArchive?.Files.Count ?? 0;
+        }
+
+        public int GetFileIndex(string fileName)
+        {
+            if (_currentArchive == null)
+            {
+                return -1;
+            }
+
+            for (int i = 0; i < _currentArchive.Files.Count; i++)
+            {
+                if (_currentArchive.Files[i].Name == fileName)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        public bool ReplaceFileByName(string filePath)
+        {
+            if (_currentArchive == null)
+            {
+                throw new InvalidOperationException("No file is currently open");
+            }
+
+            var name = Path.GetFileName(filePath);
+            var file = _currentArchive.Files.FirstOrDefault(
+                f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+            if (file == null)
+            {
+                return false;
+            }
+
+            var data = File.ReadAllBytes(filePath);
+            file.CompressedData = Prs.CompressData(data);
+            _modifiedFiles.Add(file.Name);
+            _isDirty = true;
+            return true;
+        }
+
+        public void InsertFile(int index, string filePath)
+        {
+            if (_currentArchive == null)
+            {
+                throw new InvalidOperationException("No file is currently open");
+            }
+
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException($"File not found: {filePath}");
+            }
+
+            var newFile = new ArchiveFile(filePath, _currentArchive.RwVersion);
+            index = Math.Clamp(index, 0, _currentArchive.Files.Count);
+            _currentArchive.Files.Insert(index, newFile);
+            _isDirty = true;
+        }
+
+        public void MoveFileToIndex(string sourceFileName, int targetArchiveIndex)
+        {
+            if (_currentArchive == null)
+            {
+                throw new InvalidOperationException("No file is currently open");
+            }
+
+            var sourceIndex = GetFileIndex(sourceFileName);
+            if (sourceIndex < 0)
+            {
+                return;
+            }
+
+            var originalOrder = _currentArchive.Files.Select(f => f.Name).ToList();
+
+            var file = _currentArchive.Files[sourceIndex];
+            _currentArchive.Files.RemoveAt(sourceIndex);
+
+            if (targetArchiveIndex > sourceIndex)
+            {
+                targetArchiveIndex--;
+            }
+
+            targetArchiveIndex = Math.Clamp(targetArchiveIndex, 0, _currentArchive.Files.Count);
+            _currentArchive.Files.Insert(targetArchiveIndex, file);
+
+            for (int i = 0; i < _currentArchive.Files.Count; i++)
+            {
+                if (i >= originalOrder.Count || _currentArchive.Files[i].Name != originalOrder[i])
+                {
+                    _modifiedFiles.Add(_currentArchive.Files[i].Name);
+                }
+            }
+
+            _isDirty = true;
+        }
+
         public void ReplaceFile(FileEntry entry, string replacementFilePath)
         {
             if (_currentArchive == null)
