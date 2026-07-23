@@ -159,32 +159,14 @@ namespace ShadowONE.Services
             var tempDir = Path.Combine(Path.GetTempPath(), "ShadowONE_DragDrop");
             if (Directory.Exists(tempDir))
             {
-                try
-                {
-                    Directory.Delete(tempDir, true);
-                }
-                catch
-                {
-                    // ignored - best effort cleanup of previous staging files
-                }
+                try { Directory.Delete(tempDir, true); } catch { }
             }
             Directory.CreateDirectory(tempDir);
 
             var paths = new List<string>();
             foreach (var entry in entries)
             {
-                var safeName = Path.GetFileName(entry.FileName);
-                if (string.IsNullOrEmpty(safeName))
-                {
-                    safeName = entry.FileName;
-                }
-
-                foreach (var c in Path.GetInvalidFileNameChars())
-                {
-                    safeName = safeName.Replace(c, '_');
-                }
-
-                var outputPath = Path.Combine(tempDir, safeName);
+                var outputPath = Path.Combine(tempDir, GetSafeFileName(entry.FileName));
                 var decompressedData = ExtractFile(entry);
                 File.WriteAllBytes(outputPath, decompressedData);
                 paths.Add(outputPath);
@@ -195,16 +177,26 @@ namespace ShadowONE.Services
 
         public string ExtractFileToTempForLaunch(FileEntry entry)
         {
-            var safeName = Path.GetFileName(entry.FileName);
-            if (string.IsNullOrEmpty(safeName))
-            {
-                safeName = entry.FileName;
-            }
-
-            var tempPath = Path.Combine(Path.GetTempPath(), safeName);
+            var tempPath = Path.Combine(Path.GetTempPath(), GetSafeFileName(entry.FileName));
             var data = ExtractFile(entry);
             File.WriteAllBytes(tempPath, data);
             return tempPath;
+        }
+
+        private static string GetSafeFileName(string fileName)
+        {
+            var safeName = Path.GetFileName(fileName);
+            if (string.IsNullOrEmpty(safeName))
+            {
+                safeName = fileName;
+            }
+
+            foreach (var c in Path.GetInvalidFileNameChars())
+            {
+                safeName = safeName.Replace(c, '_');
+            }
+
+            return safeName;
         }
 
         public int GetFileCount()
@@ -325,7 +317,6 @@ namespace ShadowONE.Services
 
             if (file != null)
             {
-                file.Name = entry.FileName;
                 file.CompressedData = Prs.CompressData(fileData);
                 _modifiedFiles.Add(entry.FileName);
                 _isDirty = true;
@@ -408,18 +399,7 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            List<byte> fileData;
-            if (_archiveType == ONEArchiveType.Heroes)
-            {
-                fileData = _currentArchive.BuildHeroesONEArchive();
-            }
-            else
-            {
-                var isShadow60 = _archiveType == ONEArchiveType.Shadow060;
-                fileData = _currentArchive.BuildShadowONEArchive(isShadow60);
-            }
-
-            File.WriteAllBytes(_currentFilePath, fileData.ToArray());
+            File.WriteAllBytes(_currentFilePath, BuildArchiveData().ToArray());
             _modifiedFiles.Clear();
             _isDirty = false;
         }
@@ -431,21 +411,21 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            List<byte> fileData;
-            if (_archiveType == ONEArchiveType.Heroes)
-            {
-                fileData = _currentArchive.BuildHeroesONEArchive();
-            }
-            else
-            {
-                var isShadow60 = _archiveType == ONEArchiveType.Shadow060;
-                fileData = _currentArchive.BuildShadowONEArchive(isShadow60);
-            }
-
-            File.WriteAllBytes(newFilePath, fileData.ToArray());
+            File.WriteAllBytes(newFilePath, BuildArchiveData().ToArray());
             _currentFilePath = newFilePath;
             _modifiedFiles.Clear();
             _isDirty = false;
+        }
+
+        private List<byte> BuildArchiveData()
+        {
+            if (_archiveType == ONEArchiveType.Heroes)
+            {
+                return _currentArchive!.BuildHeroesONEArchive();
+            }
+
+            var isShadow60 = _archiveType == ONEArchiveType.Shadow060;
+            return _currentArchive!.BuildShadowONEArchive(isShadow60);
         }
 
         public void SetArchiveRwVersion(uint version, uint major, uint minor, uint revision, ushort buildNumber)
@@ -592,16 +572,7 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            var index = -1;
-            for (int i = 0; i < _currentArchive.Files.Count; i++)
-            {
-                if (_currentArchive.Files[i].Name == entry.FileName)
-                {
-                    index = i;
-                    break;
-                }
-            }
-
+            var index = GetFileIndex(entry.FileName);
             if (index <= 0)
             {
                 return false;
@@ -627,16 +598,7 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            var index = -1;
-            for (int i = 0; i < _currentArchive.Files.Count; i++)
-            {
-                if (_currentArchive.Files[i].Name == entry.FileName)
-                {
-                    index = i;
-                    break;
-                }
-            }
-
+            var index = GetFileIndex(entry.FileName);
             if (index < 0 || index >= _currentArchive.Files.Count - 1)
             {
                 return false;
