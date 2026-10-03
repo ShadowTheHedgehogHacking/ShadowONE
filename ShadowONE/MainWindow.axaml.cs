@@ -848,8 +848,18 @@ namespace ShadowONE
             UpdateWindowTitle();
         }
 
+        private bool IsTextInputFocused()
+        {
+            return GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;
+        }
+
         private void Window_KeyDown(object? sender, KeyEventArgs e)
         {
+            if (IsTextInputFocused())
+            {
+                return;
+            }
+
             if (FilesListBox.SelectedItem is FileEntry && e.KeyModifiers == KeyModifiers.Shift)
             {
                 if (e.Key == Key.W)
@@ -899,7 +909,7 @@ namespace ShadowONE
                     Rename_Click(sender, new RoutedEventArgs());
                     e.Handled = true;
                 }
-                else if (e.Key == Key.Delete)
+                else if (e.Key == Key.Delete && !IsTextInputFocused())
                 {
                     Delete_Click(sender, new RoutedEventArgs());
                     e.Handled = true;
