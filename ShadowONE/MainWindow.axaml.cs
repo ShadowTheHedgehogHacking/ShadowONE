@@ -267,6 +267,11 @@ namespace ShadowONE
                 try
                 {
                     _lastDialogFolder = Path.GetDirectoryName(files[0].Path.LocalPath);
+                    if (await RejectOverlongNames(files.Select(f => f.Path.LocalPath)))
+                    {
+                        return;
+                    }
+
                     foreach (var file in files)
                     {
                         _oneFileService.AddFile(file.Path.LocalPath);
@@ -291,7 +296,7 @@ namespace ShadowONE
                 return;
             }
 
-            var newName = await ShowInputDialog("Rename File", "Enter new file name:", selectedFile.FileName);
+            var newName = await ShowInputDialog("Rename File", $"Enter new file name (max {_oneFileService.MaxFileNameLength} characters):", selectedFile.FileName, _oneFileService.MaxFileNameLength);
             if (!string.IsNullOrEmpty(newName) && newName != selectedFile.FileName)
             {
                 try
@@ -598,6 +603,11 @@ namespace ShadowONE
             }
 
             if (!_oneFileService.IsFileOpen)
+            {
+                return;
+            }
+
+            if (await RejectOverlongNames(paths))
             {
                 return;
             }
@@ -963,6 +973,18 @@ namespace ShadowONE
             await dialog.ShowDialog(this);
         }
 
+        private async Task<bool> RejectOverlongNames(IEnumerable<string> paths)
+        {
+            var overlong = _oneFileService.GetOverlongFileNames(paths);
+            if (overlong.Count == 0)
+            {
+                return false;
+            }
+
+            await ShowError($"File name chars have a max of {_oneFileService.MaxFileNameLength} characters.");
+            return true;
+        }
+
         private async Task ShowError(string message)
         {
             var dialog = new Window
@@ -1032,7 +1054,7 @@ namespace ShadowONE
             return result;
         }
 
-        private async Task<string?> ShowInputDialog(string title, string prompt, string defaultValue)
+        private async Task<string?> ShowInputDialog(string title, string prompt, string defaultValue, int maxLength = 0)
         {
             var dialog = new Window
             {
@@ -1054,6 +1076,7 @@ namespace ShadowONE
             var textBox = new TextBox 
             { 
                 Text = defaultValue,
+                MaxLength = maxLength,
                 SelectionStart = 0,
                 SelectionEnd = defaultValue.Length
             };

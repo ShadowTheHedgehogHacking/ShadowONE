@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using HeroesONE_R.Structures;
 using HeroesONE_R.Structures.Common;
+using HeroesONE_R.Structures.ShadowTheHedgehog;
+using HeroesONE_R.Structures.SonicHeroes.ONE_Substructures;
 using HeroesONE_R.Structures.Substructures;
 using HeroesONE_R.Utilities;
 using ShadowONE.Models;
@@ -33,6 +35,16 @@ namespace ShadowONE.Services
             "GNCP",
             "XNCP",
         ];
+
+        /// <summary>
+        /// Longest file name the current archive format can store; the name field includes a null terminator.
+        /// </summary>
+        public int MaxFileNameLength => _archiveType switch
+        {
+            ONEArchiveType.Shadow050 => ONE50FileEntry.FileNameLength - 1,
+            ONEArchiveType.Shadow060 => ONE60FileEntry.FileNameLength - 1,
+            _ => ONEFileName.FileNameLength - 1,
+        };
 
         private Archive? _currentArchive;
         private string? _currentFilePath;
@@ -245,6 +257,27 @@ namespace ShadowONE.Services
             return true;
         }
 
+        /// <summary>
+        /// Returns the names of the given files (by path) that are too long for the current archive format.
+        /// </summary>
+        public List<string> GetOverlongFileNames(IEnumerable<string> filePaths)
+        {
+            return filePaths
+                .Select(Path.GetFileName)
+                .OfType<string>()
+                .Where(name => name.Length > MaxFileNameLength)
+                .ToList();
+        }
+
+        private void ValidateFileNameLength(string name)
+        {
+            if (name.Length > MaxFileNameLength)
+            {
+                throw new ArgumentException(
+                    $"\"{name}\" is {name.Length} characters; this archive format allows at most {MaxFileNameLength}.");
+            }
+        }
+
         public void InsertFile(int index, string filePath)
         {
             if (_currentArchive == null)
@@ -257,6 +290,7 @@ namespace ShadowONE.Services
                 throw new FileNotFoundException($"File not found: {filePath}");
             }
 
+            ValidateFileNameLength(Path.GetFileName(filePath));
             var newFile = new ArchiveFile(filePath, _currentArchive.RwVersion);
             index = Math.Clamp(index, 0, _currentArchive.Files.Count);
             _currentArchive.Files.Insert(index, newFile);
@@ -350,6 +384,7 @@ namespace ShadowONE.Services
                 throw new FileNotFoundException($"File not found: {filePath}");
             }
 
+            ValidateFileNameLength(Path.GetFileName(filePath));
             var newFile = new ArchiveFile(filePath, _currentArchive.RwVersion);
             _currentArchive.Files.Add(newFile);
             _isDirty = true;
@@ -382,9 +417,21 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
+            if (string.IsNullOrWhiteSpace(newFileName))
+            {
+                throw new ArgumentException("File name cannot be empty.");
+            }
+
+            ValidateFileNameLength(newFileName);
+
             var file = _currentArchive.Files.FirstOrDefault(f => f.Name == oldFileName);
             if (file != null)
             {
+                if (_currentArchive.Files.Any(f => f != file && f.Name.Equals(newFileName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new ArgumentException($"A file named \"{newFileName}\" already exists in this archive.");
+                }
+
                 file.Name = newFileName;
                 _modifiedFiles.Remove(oldFileName);
                 _modifiedFiles.Add(newFileName);

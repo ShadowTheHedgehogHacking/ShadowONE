@@ -26,7 +26,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>none</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="HeroesONE-R" Version="1.0.0" />
+    <PackageReference Include="HeroesONE-R" Version="2.0.1" />
   </ItemGroup>
 
   <ItemGroup>
