@@ -161,25 +161,35 @@ namespace ShadowONE.Services
             }
         }
 
-        private static string GetDragTempDirectory()
+        // <temp>/ShadowONE/<processId>/
+        private static string GetTempRootDirectory()
         {
-            return Path.Combine(Path.GetTempPath(), "ShadowONE_DragDrop", Environment.ProcessId.ToString());
+            return Path.Combine(Path.GetTempPath(), "ShadowONE");
         }
 
-        public void CleanupDragTemp()
+        private static string GetInstanceTempDirectory()
         {
-            var tempDir = GetDragTempDirectory();
+            return Path.Combine(GetTempRootDirectory(), Environment.ProcessId.ToString());
+        }
+
+        private static string GetDragTempDirectory()
+        {
+            return Path.Combine(GetInstanceTempDirectory(), "DragDrop");
+        }
+
+        private static string GetLaunchTempDirectory()
+        {
+            return Path.Combine(GetInstanceTempDirectory(), "Launch");
+        }
+
+        public void CleanupTemp()
+        {
             try
             {
-                if (Directory.Exists(tempDir))
+                var root = GetTempRootDirectory();
+                if (Directory.Exists(root))
                 {
-                    Directory.Delete(tempDir, true);
-                }
-
-                var parent = Path.GetDirectoryName(tempDir);
-                if (parent != null && Directory.Exists(parent))
-                {
-                    Directory.Delete(parent, false);
+                    Directory.Delete(root, true);
                 }
             }
             catch
@@ -216,7 +226,9 @@ namespace ShadowONE.Services
 
         public string ExtractFileToTempForLaunch(FileEntry entry)
         {
-            var tempPath = Path.Combine(Path.GetTempPath(), GetSafeFileName(entry.FileName));
+            var launchDir = GetLaunchTempDirectory();
+            Directory.CreateDirectory(launchDir);
+            var tempPath = Path.Combine(launchDir, GetSafeFileName(entry.FileName));
             var data = ExtractFile(entry);
             File.WriteAllBytes(tempPath, data);
             return tempPath;

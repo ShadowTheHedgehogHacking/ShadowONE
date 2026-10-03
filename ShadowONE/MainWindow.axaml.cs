@@ -103,7 +103,7 @@ namespace ShadowONE
 
         protected override void OnClosed(EventArgs e)
         {
-            _oneFileService.CleanupDragTemp();
+            _oneFileService.CleanupTemp();
             base.OnClosed(e);
         }
 
