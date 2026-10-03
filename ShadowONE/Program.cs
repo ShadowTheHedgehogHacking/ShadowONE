@@ -18,7 +18,7 @@ internal class Program
     private static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .UseWaylandWithFallback()
+            //.UseWaylandWithFallback() // Disabling Wayland for now, too buggy with Rename dialog etc
             .WithInterFont()
             .LogToTrace();
 }
