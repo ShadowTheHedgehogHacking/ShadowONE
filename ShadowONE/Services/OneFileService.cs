@@ -89,13 +89,13 @@ namespace ShadowONE.Services
 
             foreach (var file in _currentArchive.Files)
             {
-                var decompressedData = file.DecompressThis();
+                var decompressedSize = file.CompressedData.IsEmpty ? 0 : (int)Prs.GetDecompressedSize(file.CompressedData.Span);
                 entries.Add(new FileEntry
                 {
                     FileName = file.Name,
-                    FileSize = decompressedData.Length,
+                    FileSize = decompressedSize,
                     Offset = 0,
-                    Metadata = $"C: {FormatFileSize(file.CompressedData.Length)} | D: {FormatFileSize(decompressedData.Length)} | RW: {file.RwVersion}",
+                    Metadata = $"C: {FormatFileSize(file.CompressedData.Length)} | D: {FormatFileSize(decompressedSize)} | RW: {file.RwVersion}",
                     IsModified = _modifiedFiles.Contains(file.Name),
                     RwVersion = file.RwVersion.GetVersion(),
                     RwMajor = file.RwVersion.GetMajor(),
