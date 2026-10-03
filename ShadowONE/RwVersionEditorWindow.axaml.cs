@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -16,7 +18,9 @@ namespace ShadowONE
         private NumericUpDown? _majorBox;
         private NumericUpDown? _minorBox;
         private NumericUpDown? _revisionBox;
-        private NumericUpDown? _buildNumberBox;
+        private TextBox? _buildNumberBox;
+        private Button? _saveButton;
+        private TextBlock? _errorBlock;
         private TextBlock? _hexPreview;
         private TextBlock? _fileNameBlock;
 
@@ -59,14 +63,14 @@ namespace ShadowONE
             var fieldsPanel = new StackPanel { Spacing = 10 };
 
             var row1 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-            row1.Children.Add(CreateFieldGroup("Version", ref _versionBox, 0, 15, 100));
+            row1.Children.Add(CreateFieldGroup("Version", ref _versionBox, 3, 6, 100));
             row1.Children.Add(CreateFieldGroup("Major", ref _majorBox, 0, 15, 100));
             row1.Children.Add(CreateFieldGroup("Minor", ref _minorBox, 0, 15, 100));
             fieldsPanel.Children.Add(row1);
 
             var row2 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-            row2.Children.Add(CreateFieldGroup("Revision", ref _revisionBox, 0, 15, 100));
-            row2.Children.Add(CreateFieldGroup("Build Number", ref _buildNumberBox, 0, 65535, 130));
+            row2.Children.Add(CreateFieldGroup("Revision", ref _revisionBox, 0, 63, 100));
+            row2.Children.Add(CreateBuildNumberGroup());
             
             fieldsPanel.Children.Add(row2);
 
@@ -83,7 +87,7 @@ namespace ShadowONE
             
             endPanel.Children.Add(_hexPreview);
             
-            var saveButton = new Button 
+            _saveButton = new Button
             { 
                 Content = "Save", 
                 Width = 80, 
@@ -91,10 +95,18 @@ namespace ShadowONE
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            saveButton.Click += Save_Click;
-            endPanel.Children.Add(saveButton);
+            _saveButton.Click += Save_Click;
+            endPanel.Children.Add(_saveButton);
             
             mainPanel.Children.Add(endPanel);
+
+            _errorBlock = new TextBlock
+            {
+                Foreground = Avalonia.Media.Brushes.IndianRed,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                IsVisible = false
+            };
+            mainPanel.Children.Add(_errorBlock);
 
             var hintsPanel = new StackPanel { Spacing = 2, Margin = new Avalonia.Thickness(0, 2, 0, 0) };
 
@@ -148,6 +160,38 @@ namespace ShadowONE
             return panel;
         }
 
+        private StackPanel CreateBuildNumberGroup()
+        {
+            var panel = new StackPanel { Spacing = 3 };
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Build Number (hex)",
+                FontSize = 12,
+                FontWeight = Avalonia.Media.FontWeight.SemiBold
+            });
+
+            _buildNumberBox = new TextBox
+            {
+                MaxLength = 4,
+                Text = "0000",
+                Width = 130,
+                Height = 26,
+                FontSize = 12,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            _buildNumberBox.TextInput += (_, e) =>
+            {
+                if (e.Text != null && !e.Text.All(Uri.IsHexDigit))
+                {
+                    e.Handled = true;
+                }
+            };
+            panel.Children.Add(_buildNumberBox);
+
+            return panel;
+        }
+
         private void OnLoaded(object? sender, RoutedEventArgs e)
         {
             if (_entry != null)
@@ -157,37 +201,75 @@ namespace ShadowONE
                 _majorBox!.Value = _entry.RwMajor;
                 _minorBox!.Value = _entry.RwMinor;
                 _revisionBox!.Value = _entry.RwRevision;
-                _buildNumberBox!.Value = _entry.RwBuildNumber;
+                _buildNumberBox!.Text = _entry.RwBuildNumber.ToString("X4");
             }
 
             _versionBox!.ValueChanged += (_, _) => UpdatePreview();
             _majorBox!.ValueChanged += (_, _) => UpdatePreview();
             _minorBox!.ValueChanged += (_, _) => UpdatePreview();
             _revisionBox!.ValueChanged += (_, _) => UpdatePreview();
-            _buildNumberBox!.ValueChanged += (_, _) => UpdatePreview();
+            _buildNumberBox!.TextChanged += (_, _) => UpdatePreview();
 
             UpdatePreview();
         }
 
+        private bool TryReadValues(out uint version, out uint major, out uint minor, out uint revision, out ushort buildNumber)
+        {
+            version = major = minor = revision = 0;
+            buildNumber = 0;
+
+            // A cleared field has no value; never substitute 0 for it.
+            if (_versionBox?.Value is not decimal v || _majorBox?.Value is not decimal ma ||
+                _minorBox?.Value is not decimal mi || _revisionBox?.Value is not decimal re)
+            {
+                return false;
+            }
+
+            if (v < 3 || v > 6 || ma < 0 || ma > 15 || mi < 0 || mi > 15 || re < 0 || re > 63)
+            {
+                return false;
+            }
+
+            if (!ushort.TryParse(_buildNumberBox?.Text, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out buildNumber))
+            {
+                return false;
+            }
+
+            version = (uint)v;
+            major = (uint)ma;
+            minor = (uint)mi;
+            revision = (uint)re;
+            return true;
+        }
+
         private void UpdatePreview()
         {
-            var version = (uint)(_versionBox?.Value ?? 0);
-            var major = (uint)(_majorBox?.Value ?? 0);
-            var minor = (uint)(_minorBox?.Value ?? 0);
-            var revision = (uint)(_revisionBox?.Value ?? 0);
-            var buildNumber = (ushort)(_buildNumberBox?.Value ?? 0);
-            _hexPreview!.Text = $"Version: {version}.{major}.{minor}.{revision}.{buildNumber:X4}";
+            var valid = TryReadValues(out var version, out var major, out var minor, out var revision, out var buildNumber);
+            _saveButton!.IsEnabled = valid;
+            _errorBlock!.IsVisible = false;
+            _hexPreview!.Text = valid
+                ? $"Version: {version}.{major}.{minor}.{revision}.{buildNumber:X4}"
+                : "Version: invalid value";
         }
 
         private void Save_Click(object? sender, RoutedEventArgs e)
         {
-            var version = (uint)(_versionBox?.Value ?? 0);
-            var major = (uint)(_majorBox?.Value ?? 0);
-            var minor = (uint)(_minorBox?.Value ?? 0);
-            var revision = (uint)(_revisionBox?.Value ?? 0);
-            var buildNumber = (ushort)(_buildNumberBox?.Value ?? 0);
+            if (!TryReadValues(out var version, out var major, out var minor, out var revision, out var buildNumber))
+            {
+                return;
+            }
 
-            _onSave(version, major, minor, revision, buildNumber);
+            try
+            {
+                _onSave(version, major, minor, revision, buildNumber);
+            }
+            catch (ArgumentException ex)
+            {
+                _errorBlock!.Text = ex.Message;
+                _errorBlock.IsVisible = true;
+                return;
+            }
+
             Close();
         }
     }
