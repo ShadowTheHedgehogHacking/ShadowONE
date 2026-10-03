@@ -25,6 +25,10 @@ namespace ShadowONE
         private string? _currentFilePath;
         private string? _lastDialogFolder;
         private bool _suppressCloseCheck;
+        private const double DragStartThreshold = 30;
+        private FileEntry? _dragCandidate;
+        private Point _dragStartPoint;
+        private PointerPressedEventArgs? _dragPressedEvent;
 
         private static readonly DataFormat<string> InternalDragFormat =
             DataFormat.CreateInProcessFormat<string>("ShadowONE-Internal-Reorder");
@@ -41,6 +45,12 @@ namespace ShadowONE
 
             FilesListBox.AddHandler(InputElement.PointerPressedEvent,
                 FilesListBox_PointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+            FilesListBox.AddHandler(InputElement.PointerMovedEvent,
+                FilesListBox_PointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+            FilesListBox.AddHandler(InputElement.PointerReleasedEvent,
+                FilesListBox_PointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+            FilesListBox.AddHandler(InputElement.PointerCaptureLostEvent,
+                FilesListBox_PointerCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
             this.AddHandler(DragDrop.DragOverEvent, Window_DragOver);
             this.AddHandler(DragDrop.DropEvent, Window_Drop);
 
@@ -485,8 +495,10 @@ namespace ShadowONE
             }
         }
 
-        private async void FilesListBox_PointerPressed(object? sender, PointerPressedEventArgs e)
+        private void FilesListBox_PointerPressed(object? sender, PointerPressedEventArgs e)
         {
+            _dragCandidate = null;
+
             if (!_oneFileService.IsFileOpen)
             {
                 return;
@@ -505,11 +517,46 @@ namespace ShadowONE
                 return;
             }
 
-            var sourceIndex = _oneFileService.GetFileIndex(entry.FileName);
-            if (sourceIndex < 0)
+            if (_oneFileService.GetFileIndex(entry.FileName) < 0)
             {
                 return;
             }
+
+            _dragCandidate = entry;
+            _dragStartPoint = point;
+            _dragPressedEvent = e;
+        }
+
+        private void FilesListBox_PointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            _dragCandidate = null;
+        }
+
+        private void FilesListBox_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+        {
+            _dragCandidate = null;
+        }
+
+        private async void FilesListBox_PointerMoved(object? sender, PointerEventArgs e)
+        {
+            if (_dragCandidate is not { } entry || _dragPressedEvent is not { } pressedEvent)
+            {
+                return;
+            }
+
+            if (!e.GetCurrentPoint(FilesListBox).Properties.IsLeftButtonPressed)
+            {
+                _dragCandidate = null;
+                return;
+            }
+
+            var delta = e.GetPosition(FilesListBox) - _dragStartPoint;
+            if (Math.Abs(delta.X) < DragStartThreshold && Math.Abs(delta.Y) < DragStartThreshold)
+            {
+                return;
+            }
+
+            _dragCandidate = null;
 
             List<string> tempPaths;
             try
@@ -534,7 +581,7 @@ namespace ShadowONE
                 }
             }
 
-            await DragDrop.DoDragDropAsync(e, dataTransfer, DragDropEffects.Copy | DragDropEffects.Move);
+            await DragDrop.DoDragDropAsync(pressedEvent, dataTransfer, DragDropEffects.Copy | DragDropEffects.Move);
         }
 
         private void Window_DragOver(object? sender, DragEventArgs e)

@@ -168,7 +168,7 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            var tempDir = Path.Combine(Path.GetTempPath(), "ShadowONE_DragDrop");
+            var tempDir = Path.Combine(Path.GetTempPath(), "ShadowONE_DragDrop", Environment.ProcessId.ToString());
             if (Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, true); } catch { }
