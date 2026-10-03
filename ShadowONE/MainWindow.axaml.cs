@@ -101,6 +101,12 @@ namespace ShadowONE
             base.OnClosing(e);
         }
 
+        protected override void OnClosed(EventArgs e)
+        {
+            _oneFileService.CleanupDragTemp();
+            base.OnClosed(e);
+        }
+
         public async void OpenOneFile(string filePath)
         {
             try

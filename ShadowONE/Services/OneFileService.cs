@@ -161,6 +161,33 @@ namespace ShadowONE.Services
             }
         }
 
+        private static string GetDragTempDirectory()
+        {
+            return Path.Combine(Path.GetTempPath(), "ShadowONE_DragDrop", Environment.ProcessId.ToString());
+        }
+
+        public void CleanupDragTemp()
+        {
+            var tempDir = GetDragTempDirectory();
+            try
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+
+                var parent = Path.GetDirectoryName(tempDir);
+                if (parent != null && Directory.Exists(parent))
+                {
+                    Directory.Delete(parent, false);
+                }
+            }
+            catch
+            {
+                // if a temp resource is being held by a process (like if dragged into a RW viewer), ignore
+            }
+        }
+
         public List<string> ExtractFilesToTemp(IEnumerable<FileEntry> entries)
         {
             if (_currentArchive == null)
@@ -168,7 +195,7 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            var tempDir = Path.Combine(Path.GetTempPath(), "ShadowONE_DragDrop", Environment.ProcessId.ToString());
+            var tempDir = GetDragTempDirectory();
             if (Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, true); } catch { }
