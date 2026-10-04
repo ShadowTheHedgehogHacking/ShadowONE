@@ -10,6 +10,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
 using ShadowONE.Models;
@@ -62,16 +63,8 @@ namespace ShadowONE
         {
             try
             {
-                var exeDir = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule?.FileName);
-                if (!string.IsNullOrEmpty(exeDir))
-                {
-                    var iconPath = Path.Combine(exeDir, "Assets", "logo.ico");
-                    if (File.Exists(iconPath))
-                    {
-                        using var stream = File.OpenRead(iconPath);
-                        Icon = new WindowIcon(stream);
-                    }
-                }
+                using var stream = AssetLoader.Open(new Uri("avares://ShadowONE/Assets/logo.ico"));
+                Icon = new WindowIcon(stream);
             }
             catch
             {

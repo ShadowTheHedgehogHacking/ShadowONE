@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using Avalonia.Platform;
 using System.Runtime.Versioning;
 
 namespace ShadowONE.Services
@@ -61,11 +62,12 @@ namespace ShadowONE.Services
 
         private static string? GetExePath() => Process.GetCurrentProcess().MainModule?.FileName;
 
-        private static string? GetIconPath()
+        private static byte[] LoadIconPng()
         {
-            var exeDir = Path.GetDirectoryName(GetExePath());
-            var iconPath = string.IsNullOrEmpty(exeDir) ? null : Path.Combine(exeDir, "Assets", "logo.ico");
-            return iconPath != null && File.Exists(iconPath) ? iconPath : null;
+            using var stream = AssetLoader.Open(new Uri("avares://ShadowONE/Assets/logo.png"));
+            using var memory = new MemoryStream();
+            stream.CopyTo(memory);
+            return memory.ToArray();
         }
 
         private record RegistryValue(string SubKey, string Name, string Value);
@@ -79,7 +81,6 @@ namespace ShadowONE.Services
                 return [];
             }
 
-            var iconPath = GetIconPath();
             const string progId = @"Software\Classes\ShadowONE.File";
 
             List<RegistryValue> desired =
@@ -87,7 +88,7 @@ namespace ShadowONE.Services
                 new(@"Software\Classes\.one", "", "ShadowONE.File"),
                 new(progId, "", "ShadowONE Archive"),
                 new(progId, "PerceivedType", "text"),
-                new(progId + @"\DefaultIcon", "", iconPath != null ? $"\"{iconPath}\"" : $"\"{exePath}\",0"),
+                new(progId + @"\DefaultIcon", "", $"\"{exePath}\",0"),
                 new(progId + @"\shell\open\command", "", $"\"{exePath}\" \"%1\""),
             ];
 
@@ -109,7 +110,7 @@ namespace ShadowONE.Services
         }
 
         private record LinuxState(
-            string ExePath, string? SourceIcon,
+            string ExePath, byte[] IconPng,
             string ApplicationsDir, string DesktopFile, string IconFile, string MimeDir, string MimeFile,
             bool NeedsIcon, bool NeedsDesktop, bool NeedsMime)
         {
@@ -122,29 +123,28 @@ namespace ShadowONE.Services
             var share = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
             var applicationsDir = Path.Combine(share, "applications");
             var desktopFile = Path.Combine(applicationsDir, "shadowone.desktop");
-            var iconFile = Path.Combine(share, "icons", "shadowone.ico");
+            var iconFile = Path.Combine(share, "icons", "hicolor", "256x256", "apps", "shadowone.png");
             var mimeDir = Path.Combine(share, "mime");
             var mimeFile = Path.Combine(mimeDir, "packages", "shadowone.xml");
-            var sourceIcon = GetIconPath();
+            var iconPng = LoadIconPng();
 
-            var needsIcon = sourceIcon != null &&
-                            (!File.Exists(iconFile) || new FileInfo(sourceIcon).Length != new FileInfo(iconFile).Length);
+            var needsIcon = !File.Exists(iconFile) || !File.ReadAllBytes(iconFile).AsSpan().SequenceEqual(iconPng);
             var needsDesktop = exePath.Length > 0 &&
-                               (!File.Exists(desktopFile) || File.ReadAllText(desktopFile) != GetDesktopContent(exePath, sourceIcon != null ? iconFile : "shadowone"));
+                               (!File.Exists(desktopFile) || File.ReadAllText(desktopFile) != GetDesktopContent(exePath));
 
             var needsMime = !File.Exists(mimeFile) || File.ReadAllText(mimeFile) != LinuxMimeContent;
 
-            return new LinuxState(exePath, sourceIcon, applicationsDir, desktopFile, iconFile, mimeDir, mimeFile,
+            return new LinuxState(exePath, iconPng, applicationsDir, desktopFile, iconFile, mimeDir, mimeFile,
                 needsIcon, needsDesktop, needsMime);
         }
 
-        private static string GetDesktopContent(string exePath, string iconRef)
+        private static string GetDesktopContent(string exePath)
         {
             return $@"[Desktop Entry]
 Name=ShadowONE
 Comment=ONE File Editor for Shadow and Sonic Heroes
 Exec=""{exePath}"" %f
-Icon={iconRef}
+Icon=shadowone
 Type=Application
 Categories=Utility;
 MimeType=application/x-one;
@@ -163,13 +163,13 @@ StartupNotify=false";
             if (state.NeedsIcon)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(state.IconFile)!);
-                File.Copy(state.SourceIcon!, state.IconFile, true);
+                File.WriteAllBytes(state.IconFile, state.IconPng);
             }
 
             if (state.NeedsDesktop)
             {
                 Directory.CreateDirectory(state.ApplicationsDir);
-                File.WriteAllText(state.DesktopFile, GetDesktopContent(state.ExePath, state.SourceIcon != null ? state.IconFile : "shadowone"));
+                File.WriteAllText(state.DesktopFile, GetDesktopContent(state.ExePath));
                 StartAndForget("update-desktop-database", state.ApplicationsDir);
             }
 
