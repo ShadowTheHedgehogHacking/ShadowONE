@@ -32,10 +32,11 @@ namespace ShadowONE.Services
             TryApply();
 
             Dispatcher.UIThread.Post(TryApply, DispatcherPriority.Loaded);
-            window.LayoutUpdated += OnLayoutUpdated;
+            window.Opened += OnOpened;
 
-            void OnLayoutUpdated(object? sender, EventArgs e)
+            void OnOpened(object? sender, EventArgs e)
             {
+                window.Opened -= OnOpened;
                 TryApply();
             }
         }
