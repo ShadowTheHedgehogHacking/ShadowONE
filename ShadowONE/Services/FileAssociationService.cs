@@ -1,78 +1,56 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Reflection;
-using System.Runtime.InteropServices;
+using System.Linq;
+using System.Runtime.Versioning;
 
 namespace ShadowONE.Services
 {
     public static class FileAssociationService
     {
-        public static void RegisterFileAssociation()
+        private const string LinuxMimeContent = @"<?xml version=""1.0""?>
+<mime-info xmlns=""http://www.freedesktop.org/standards/shared-mime-info"">
+  <mime-type type=""application/x-one"">
+    <comment>ONE Archive</comment>
+    <glob pattern=""*.one""/>
+    <glob pattern=""*.ONE""/>
+  </mime-type>
+</mime-info>";
+
+        public static bool IsRegistrationNeeded()
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                RegisterWindowsFileAssociation();
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                RegisterLinuxFileAssociation();
-            }
-        }
-
-        private static string? GetIconPath()
-        {
-            var exeDir = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule?.FileName);
-            if (string.IsNullOrEmpty(exeDir))
-                return null;
-
-            var iconPath = Path.Combine(exeDir, "Assets", "logo.ico");
-            return File.Exists(iconPath) ? iconPath : null;
-        }
-
-        private static void RegisterWindowsFileAssociation()
-        {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                return;
-            }
-
             try
             {
-                var exePath = Process.GetCurrentProcess().MainModule?.FileName;
-                if (string.IsNullOrEmpty(exePath))
-                    return;
-
-                var iconPath = GetIconPath();
-
-                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Software\\Classes", true))
+                if (OperatingSystem.IsWindows())
                 {
-                    if (key != null)
-                    {
-                        using (var oneExtKey = key.CreateSubKey(".one"))
-                        {
-                            oneExtKey.SetValue("", "ShadowONE.File");
-                        }
+                    return GetWindowsChanges().Count > 0;
+                }
 
-                        using (var progIdKey = key.CreateSubKey("ShadowONE.File"))
-                        {
-                            progIdKey.SetValue("", "ShadowONE Archive");
-                            progIdKey.SetValue("PerceivedType", "text");
+                if (OperatingSystem.IsLinux())
+                {
+                    return GetLinuxState().NeedsAnything;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to check file association: {ex.Message}");
+            }
 
-                            using (var iconKey = progIdKey.CreateSubKey("DefaultIcon"))
-                            {
-                                var iconValue = !string.IsNullOrEmpty(iconPath)
-                                    ? $"\"{iconPath}\""
-                                    : $"\"{exePath}\",0";
-                                iconKey.SetValue("", iconValue);
-                            }
+            return false;
+        }
 
-                            using (var commandKey = progIdKey.CreateSubKey("shell\\open\\command"))
-                            {
-                                commandKey.SetValue("", $"\"{exePath}\" \"%1\"");
-                            }
-                        }
-                    }
+        public static void Register()
+        {
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    RegisterWindows();
+                }
+                else if (OperatingSystem.IsLinux())
+                {
+                    RegisterLinux();
                 }
             }
             catch (Exception ex)
@@ -81,33 +59,88 @@ namespace ShadowONE.Services
             }
         }
 
-        private static void RegisterLinuxFileAssociation()
+        private static string? GetExePath() => Process.GetCurrentProcess().MainModule?.FileName;
+
+        private static string? GetIconPath()
         {
-            try
+            var exeDir = Path.GetDirectoryName(GetExePath());
+            var iconPath = string.IsNullOrEmpty(exeDir) ? null : Path.Combine(exeDir, "Assets", "logo.ico");
+            return iconPath != null && File.Exists(iconPath) ? iconPath : null;
+        }
+
+        private record RegistryValue(string SubKey, string Name, string Value);
+
+        [SupportedOSPlatform("windows")]
+        private static List<RegistryValue> GetWindowsChanges()
+        {
+            var exePath = GetExePath();
+            if (string.IsNullOrEmpty(exePath))
             {
-                var homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                var applicationsDir = Path.Combine(homeDir, ".local", "share", "applications");
-                var iconsDir = Path.Combine(homeDir, ".local", "share", "icons");
-                var desktopFilePath = Path.Combine(applicationsDir, "shadowone.desktop");
+                return [];
+            }
 
-                Directory.CreateDirectory(applicationsDir);
-                Directory.CreateDirectory(iconsDir);
+            var iconPath = GetIconPath();
+            const string progId = @"Software\Classes\ShadowONE.File";
 
-                var exePath = Process.GetCurrentProcess().MainModule?.FileName;
-                if (string.IsNullOrEmpty(exePath))
-                    return;
+            List<RegistryValue> desired =
+            [
+                new(@"Software\Classes\.one", "", "ShadowONE.File"),
+                new(progId, "", "ShadowONE Archive"),
+                new(progId, "PerceivedType", "text"),
+                new(progId + @"\DefaultIcon", "", iconPath != null ? $"\"{iconPath}\"" : $"\"{exePath}\",0"),
+                new(progId + @"\shell\open\command", "", $"\"{exePath}\" \"%1\""),
+            ];
 
-                var sourceIconPath = GetIconPath();
-                var destIconPath = Path.Combine(iconsDir, "shadowone.ico");
+            return desired.Where(v =>
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(v.SubKey);
+                return key?.GetValue(v.Name) as string != v.Value;
+            }).ToList();
+        }
 
-                if (!string.IsNullOrEmpty(sourceIconPath) && File.Exists(sourceIconPath))
-                {
-                    File.Copy(sourceIconPath, destIconPath, true);
-                }
+        [SupportedOSPlatform("windows")]
+        private static void RegisterWindows()
+        {
+            foreach (var change in GetWindowsChanges())
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(change.SubKey);
+                key.SetValue(change.Name, change.Value);
+            }
+        }
 
-                var iconRef = File.Exists(destIconPath) ? destIconPath : "shadowone";
+        private record LinuxState(
+            string ExePath, string? SourceIcon,
+            string ApplicationsDir, string DesktopFile, string IconFile, string MimeDir, string MimeFile,
+            bool NeedsIcon, bool NeedsDesktop, bool NeedsMime)
+        {
+            public bool NeedsAnything => NeedsIcon || NeedsDesktop || NeedsMime;
+        }
 
-                var desktopFileContent = $@"[Desktop Entry]
+        private static LinuxState GetLinuxState()
+        {
+            var exePath = GetExePath() ?? "";
+            var share = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
+            var applicationsDir = Path.Combine(share, "applications");
+            var desktopFile = Path.Combine(applicationsDir, "shadowone.desktop");
+            var iconFile = Path.Combine(share, "icons", "shadowone.ico");
+            var mimeDir = Path.Combine(share, "mime");
+            var mimeFile = Path.Combine(mimeDir, "packages", "shadowone.xml");
+            var sourceIcon = GetIconPath();
+
+            var needsIcon = sourceIcon != null &&
+                            (!File.Exists(iconFile) || new FileInfo(sourceIcon).Length != new FileInfo(iconFile).Length);
+            var needsDesktop = exePath.Length > 0 &&
+                               (!File.Exists(desktopFile) || File.ReadAllText(desktopFile) != GetDesktopContent(exePath, sourceIcon != null ? iconFile : "shadowone"));
+
+            var needsMime = !File.Exists(mimeFile) || File.ReadAllText(mimeFile) != LinuxMimeContent;
+
+            return new LinuxState(exePath, sourceIcon, applicationsDir, desktopFile, iconFile, mimeDir, mimeFile,
+                needsIcon, needsDesktop, needsMime);
+        }
+
+        private static string GetDesktopContent(string exePath, string iconRef)
+        {
+            return $@"[Desktop Entry]
 Name=ShadowONE
 Comment=ONE File Editor for Shadow and Sonic Heroes
 Exec=""{exePath}"" %f
@@ -117,45 +150,44 @@ Categories=Utility;
 MimeType=application/x-one;
 Terminal=false
 StartupNotify=false";
+        }
 
-                File.WriteAllText(desktopFilePath, desktopFileContent);
-
-                try
-                {
-                    Process.Start("update-desktop-database", applicationsDir);
-                }
-                catch
-                {
-                }
-
-                var mimeDir = Path.Combine(homeDir, ".local", "share", "mime");
-                var packagesDir = Path.Combine(mimeDir, "packages");
-                Directory.CreateDirectory(packagesDir);
-
-                var mimeFilePath = Path.Combine(packagesDir, "shadowone.xml");
-                var mimeContent = @"<?xml version=""1.0""?>
-<mime-info xmlns=""http://www.freedesktop.org/standards/shared-mime-info"">
-  <mime-type type=""application/x-one"">
-    <comment>ONE Archive</comment>
-    <glob pattern=""*.one""/>
-    <glob pattern=""*.ONE""/>
-  </mime-type>
-</mime-info>";
-
-                File.WriteAllText(mimeFilePath, mimeContent);
-
-                try
-                {
-                    Process.Start("update-mime-database", mimeDir);
-                }
-                catch
-                {
-                }
-            }
-            catch (Exception ex)
+        private static void RegisterLinux()
+        {
+            var state = GetLinuxState();
+            if (!state.NeedsAnything || state.ExePath.Length == 0)
             {
-                Console.WriteLine($"Failed to register file association: {ex.Message}");
+                return;
             }
+
+            if (state.NeedsIcon)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(state.IconFile)!);
+                File.Copy(state.SourceIcon!, state.IconFile, true);
+            }
+
+            if (state.NeedsDesktop)
+            {
+                Directory.CreateDirectory(state.ApplicationsDir);
+                File.WriteAllText(state.DesktopFile, GetDesktopContent(state.ExePath, state.SourceIcon != null ? state.IconFile : "shadowone"));
+                StartAndForget("update-desktop-database", state.ApplicationsDir);
+            }
+
+            if (state.NeedsMime)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(state.MimeFile)!);
+                File.WriteAllText(state.MimeFile, LinuxMimeContent);
+                StartAndForget("update-mime-database", state.MimeDir);
+            }
+        }
+
+        private static void StartAndForget(string fileName, string argument)
+        {
+            try
+            {
+                Process.Start(fileName, argument)?.Dispose();
+            }
+            catch {} // silent fail
         }
     }
 }

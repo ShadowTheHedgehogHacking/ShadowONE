@@ -101,6 +101,95 @@ namespace ShadowONE
             base.OnClosing(e);
         }
 
+        protected override async void OnOpened(EventArgs e)
+        {
+            base.OnOpened(e);
+            await CheckFileAssociationAsync();
+        }
+
+        private async Task CheckFileAssociationAsync()
+        {
+            // skip check if opening a .one directly
+            if (Environment.GetCommandLineArgs().Skip(1).Any(arg => arg.EndsWith(".one", StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            var mode = AppSettings.FileAssociation;
+            if (mode == FileAssociationMode.Never || !FileAssociationService.IsRegistrationNeeded())
+            {
+                return;
+            }
+
+            if (mode == FileAssociationMode.Yes)
+            {
+                FileAssociationService.Register();
+                return;
+            }
+
+            switch (await ShowFileAssociationDialog())
+            {
+                case FileAssociationMode.Yes:
+                    AppSettings.FileAssociation = FileAssociationMode.Yes;
+                    FileAssociationService.Register();
+                    break;
+                case FileAssociationMode.Never:
+                    AppSettings.FileAssociation = FileAssociationMode.Never;
+                    break;
+            }
+        }
+
+        private async Task<FileAssociationMode> ShowFileAssociationDialog()
+        {
+            var dialog = new Window
+            {
+                Title = "File Association",
+                Width = 380,
+                Height = 150,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
+            };
+            WindowsTitleBarHelper.SetDarkTitleBar(dialog);
+
+            var panel = new StackPanel { Margin = new Thickness(15), Spacing = 15 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Automatically open .one files with ShadowONE?",
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            var buttonPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Spacing = 10
+            };
+
+            var result = FileAssociationMode.Ask;
+            Button AddButton(string text, FileAssociationMode choice)
+            {
+                var button = new Button { Content = text, MinWidth = 100 };
+                button.Click += (_, _) =>
+                {
+                    result = choice;
+                    dialog.Close();
+                };
+                buttonPanel.Children.Add(button);
+                return button;
+            }
+
+            var yesButton = AddButton("Yes", FileAssociationMode.Yes);
+            AddButton("Ask me later", FileAssociationMode.Ask);
+            AddButton("Never ask me", FileAssociationMode.Never);
+            panel.Children.Add(buttonPanel);
+
+            dialog.Content = panel;
+            yesButton.AttachedToVisualTree += (_, _) => yesButton.Focus();
+
+            await dialog.ShowDialog(this);
+            return result;
+        }
+
         protected override void OnClosed(EventArgs e)
         {
             _oneFileService.CleanupTemp();

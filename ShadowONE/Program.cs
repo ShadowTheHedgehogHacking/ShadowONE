@@ -1,6 +1,5 @@
 using System;
 using Avalonia;
-using ShadowONE.Services;
 
 namespace ShadowONE;
 
@@ -10,7 +9,6 @@ internal class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        FileAssociationService.RegisterFileAssociation();
         BuildAvaloniaApp()
             .StartWithClassicDesktopLifetime(args);
     }
