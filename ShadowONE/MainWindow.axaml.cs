@@ -139,7 +139,7 @@ namespace ShadowONE
             {
                 Title = "File Association",
                 Width = 380,
-                Height = 150,
+                Height = 100,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 CanResize = false
             };
