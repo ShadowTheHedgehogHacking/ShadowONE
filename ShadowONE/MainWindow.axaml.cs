@@ -120,6 +120,7 @@ namespace ShadowONE
                 return;
             }
 
+            await Task.Delay(300); // Wayland moment (even if using XWayland, need this to not pop in wrong spot)
             switch (await ShowFileAssociationDialog())
             {
                 case FileAssociationMode.Yes:
