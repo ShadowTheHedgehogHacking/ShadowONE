@@ -93,8 +93,6 @@ namespace ShadowONE.Services
                 entries.Add(new FileEntry
                 {
                     FileName = file.Name,
-                    FileSize = decompressedSize,
-                    Offset = 0,
                     Metadata = $"C: {FormatFileSize(file.CompressedData.Length)} | D: {FormatFileSize(decompressedSize)} | RW: {file.RwVersion}",
                     IsModified = _modifiedFiles.Contains(file.Name),
                     RwVersion = file.RwVersion.GetVersion(),
@@ -411,24 +409,6 @@ namespace ShadowONE.Services
             }
         }
 
-        public void AddFile(string filePath)
-        {
-            if (_currentArchive == null)
-            {
-                throw new InvalidOperationException("No file is currently open");
-            }
-
-            if (!File.Exists(filePath))
-            {
-                throw new FileNotFoundException($"File not found: {filePath}");
-            }
-
-            ValidateFileNameLength(Path.GetFileName(filePath));
-            var newFile = new ArchiveFile(filePath, _currentArchive.RwVersion);
-            _currentArchive.Files.Add(newFile);
-            _isDirty = true;
-        }
-
         public void UpdateRwVersion(string fileName, uint version, uint major, uint minor, uint revision, ushort buildNumber)
         {
             if (_currentArchive == null)
@@ -439,11 +419,7 @@ namespace ShadowONE.Services
             var file = _currentArchive.Files.FirstOrDefault(f => f.Name == fileName);
             if (file != null)
             {
-                file.RwVersion.SetVersion(version);
-                file.RwVersion.SetMajor(major);
-                file.RwVersion.SetMinor(minor);
-                file.RwVersion.SetRevision(revision);
-                file.RwVersion.SetBuild(buildNumber);
+                ApplyRWVersion(file.RwVersion, version, major, minor, revision, buildNumber);
                 _modifiedFiles.Add(fileName);
                 _isDirty = true;
             }
@@ -521,11 +497,7 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            _currentArchive.RwVersion.SetVersion(version);
-            _currentArchive.RwVersion.SetMajor(major);
-            _currentArchive.RwVersion.SetMinor(minor);
-            _currentArchive.RwVersion.SetRevision(revision);
-            _currentArchive.RwVersion.SetBuild(buildNumber);
+            ApplyRWVersion(_currentArchive.RwVersion, version, major, minor, revision, buildNumber);
             _isDirty = true;
         }
 
@@ -536,13 +508,7 @@ namespace ShadowONE.Services
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            return (
-                _currentArchive.RwVersion.GetVersion(),
-                _currentArchive.RwVersion.GetMajor(),
-                _currentArchive.RwVersion.GetMinor(),
-                _currentArchive.RwVersion.GetRevision(),
-                _currentArchive.RwVersion.GetBuild()
-            );
+            return ReadRWVersion(_currentArchive.RwVersion);
         }
 
         public (uint Version, uint Major, uint Minor, uint Revision, ushort BuildNumber) GetFirstFileRwVersion()
@@ -555,13 +521,7 @@ namespace ShadowONE.Services
             if (_currentArchive.Files.Count > 0)
             {
                 var firstFile = _currentArchive.Files[0];
-                return (
-                    firstFile.RwVersion.GetVersion(),
-                    firstFile.RwVersion.GetMajor(),
-                    firstFile.RwVersion.GetMinor(),
-                    firstFile.RwVersion.GetRevision(),
-                    firstFile.RwVersion.GetBuild()
-                );
+                return ReadRWVersion(firstFile.RwVersion);
             }
 
             return GetArchiveRwVersion();
@@ -576,11 +536,7 @@ namespace ShadowONE.Services
 
             foreach (var file in _currentArchive.Files)
             {
-                file.RwVersion.SetVersion(version);
-                file.RwVersion.SetMajor(major);
-                file.RwVersion.SetMinor(minor);
-                file.RwVersion.SetRevision(revision);
-                file.RwVersion.SetBuild(buildNumber);
+                ApplyRWVersion(file.RwVersion, version, major, minor, revision, buildNumber);
                 _modifiedFiles.Add(file.Name);
             }
 
@@ -653,22 +609,33 @@ namespace ShadowONE.Services
 
         public bool MoveFileUp(FileEntry entry)
         {
+            return SwapWithNeighbor(entry, -1);
+        }
+
+        public bool MoveFileDown(FileEntry entry)
+        {
+            return SwapWithNeighbor(entry, 1);
+        }
+
+        private bool SwapWithNeighbor(FileEntry entry, int direction)
+        {
             if (_currentArchive == null)
             {
                 throw new InvalidOperationException("No file is currently open");
             }
 
             var index = GetFileIndex(entry.FileName);
-            if (index <= 0)
+            var otherIndex = index + direction;
+            if (index < 0 || otherIndex < 0 || otherIndex >= _currentArchive.Files.Count)
             {
                 return false;
             }
 
             var file = _currentArchive.Files[index];
-            var otherFile = _currentArchive.Files[index - 1];
-            
+            var otherFile = _currentArchive.Files[otherIndex];
+
             _currentArchive.Files[index] = otherFile;
-            _currentArchive.Files[index - 1] = file;
+            _currentArchive.Files[otherIndex] = file;
 
             _modifiedFiles.Add(file.Name);
             _modifiedFiles.Add(otherFile.Name);
@@ -677,30 +644,18 @@ namespace ShadowONE.Services
             return true;
         }
 
-        public bool MoveFileDown(FileEntry entry)
+        private static void ApplyRWVersion(RWVersion rw, uint version, uint major, uint minor, uint revision, ushort buildNumber)
         {
-            if (_currentArchive == null)
-            {
-                throw new InvalidOperationException("No file is currently open");
-            }
+            rw.SetVersion(version);
+            rw.SetMajor(major);
+            rw.SetMinor(minor);
+            rw.SetRevision(revision);
+            rw.SetBuild(buildNumber);
+        }
 
-            var index = GetFileIndex(entry.FileName);
-            if (index < 0 || index >= _currentArchive.Files.Count - 1)
-            {
-                return false;
-            }
-
-            var file = _currentArchive.Files[index];
-            var otherFile = _currentArchive.Files[index + 1];
-            
-            _currentArchive.Files[index] = otherFile;
-            _currentArchive.Files[index + 1] = file;
-
-            _modifiedFiles.Add(file.Name);
-            _modifiedFiles.Add(otherFile.Name);
-            _isDirty = true;
-
-            return true;
+        private static (uint Version, uint Major, uint Minor, uint Revision, ushort BuildNumber) ReadRWVersion(RWVersion rw)
+        {
+            return (rw.GetVersion(), rw.GetMajor(), rw.GetMinor(), rw.GetRevision(), rw.GetBuild());
         }
 
         private static string FormatFileSize(long bytes)

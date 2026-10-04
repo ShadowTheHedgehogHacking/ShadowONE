@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -267,9 +266,7 @@ namespace ShadowONE
                 try
                 {
                     _oneFileService.SaveChanges();
-                    var entries = _oneFileService.GetFileEntries();
-                    _viewModel.LoadFiles(entries);
-                    UpdateWindowTitle();
+                    RefreshFileList();
                 }
                 catch (Exception ex)
                 {
@@ -303,10 +300,8 @@ namespace ShadowONE
                     _lastDialogFolder = Path.GetDirectoryName(newPath);
                     _oneFileService.SaveChangesAs(newPath);
                     _currentFilePath = newPath;
-                    var entries = _oneFileService.GetFileEntries();
-                    _viewModel.LoadFiles(entries);
                     _viewModel.CurrentFilePath = _currentFilePath;
-                    UpdateWindowTitle();
+                    RefreshFileList();
                 }
                 catch (Exception ex)
                 {
@@ -373,12 +368,10 @@ namespace ShadowONE
 
                     foreach (var file in files)
                     {
-                        _oneFileService.AddFile(file.Path.LocalPath);
+                        _oneFileService.InsertFile(_oneFileService.GetFileCount(), file.Path.LocalPath);
                     }
 
-                    var entries = _oneFileService.GetFileEntries();
-                    _viewModel.LoadFiles(entries);
-                    UpdateWindowTitle();
+                    RefreshFileList();
                 }
                 catch (Exception ex)
                 {
@@ -401,26 +394,7 @@ namespace ShadowONE
                 try
                 {
                     _oneFileService.RenameFile(selectedFile.FileName, newName);
-                    var entries = _oneFileService.GetFileEntries();
-                    _viewModel.LoadFiles(entries);
-                    UpdateWindowTitle();
-                    
-                    var newIndex = -1;
-                    for (int i = 0; i < _viewModel.FilteredFiles.Count; i++)
-                    {
-                        if (_viewModel.FilteredFiles[i].FileName == newName)
-                        {
-                            newIndex = i;
-                            break;
-                        }
-                    }
-                    
-                    if (newIndex >= 0)
-                    {
-                        FilesListBox.SelectedIndex = newIndex;
-                        FilesListBox.ScrollIntoView(newIndex);
-                        FilesListBox.ContainerFromIndex(newIndex)?.Focus();
-                    }
+                    RefreshFileList(newName);
                 }
                 catch (Exception ex)
                 {
@@ -452,26 +426,7 @@ namespace ShadowONE
                 try
                 {
                     _oneFileService.ReplaceFile(selectedFile, files[0].Path.LocalPath);
-                    var entries = _oneFileService.GetFileEntries();
-                    _viewModel.LoadFiles(entries);
-                    UpdateWindowTitle();
-                    
-                    var newIndex = -1;
-                    for (int i = 0; i < _viewModel.FilteredFiles.Count; i++)
-                    {
-                        if (_viewModel.FilteredFiles[i].FileName == fileName)
-                        {
-                            newIndex = i;
-                            break;
-                        }
-                    }
-                    
-                    if (newIndex >= 0)
-                    {
-                        FilesListBox.SelectedIndex = newIndex;
-                        FilesListBox.ScrollIntoView(newIndex);
-                        FilesListBox.ContainerFromIndex(newIndex)?.Focus();
-                    }
+                    RefreshFileList(fileName);
                 }
                 catch (Exception ex)
                 {
@@ -523,9 +478,7 @@ namespace ShadowONE
             try
             {
                 _oneFileService.DeleteFile(selectedFile);
-                var entries = _oneFileService.GetFileEntries();
-                _viewModel.LoadFiles(entries);
-                UpdateWindowTitle();
+                RefreshFileList();
             }
             catch (Exception ex)
             {
@@ -542,8 +495,7 @@ namespace ShadowONE
 
             if (_oneFileService.MoveFileUp(selectedFile))
             {
-                RefreshFileListAndSelect(selectedFile.FileName);
-                UpdateWindowTitle();
+                RefreshFileList(selectedFile.FileName);
             }
         }
 
@@ -556,31 +508,29 @@ namespace ShadowONE
 
             if (_oneFileService.MoveFileDown(selectedFile))
             {
-                RefreshFileListAndSelect(selectedFile.FileName);
-                UpdateWindowTitle();
+                RefreshFileList(selectedFile.FileName);
             }
         }
 
-        private void RefreshFileListAndSelect(string fileName)
+        private void RefreshFileList(string? selectFileName = null)
         {
-            var entries = _oneFileService.GetFileEntries();
-            _viewModel.LoadFiles(entries);
-            
-            var newIndex = -1;
-            for (int i = 0; i < _viewModel.FilteredFiles.Count; i++)
+            _viewModel.LoadFiles(_oneFileService.GetFileEntries());
+            UpdateWindowTitle();
+
+            if (selectFileName == null)
             {
-                if (_viewModel.FilteredFiles[i].FileName == fileName)
-                {
-                    newIndex = i;
-                    break;
-                }
+                return;
             }
-            
-            if (newIndex >= 0)
+
+            for (var i = 0; i < _viewModel.FilteredFiles.Count; i++)
             {
-                FilesListBox.SelectedIndex = newIndex;
-                FilesListBox.ScrollIntoView(newIndex);
-                FilesListBox.ContainerFromIndex(newIndex)?.Focus();
+                if (_viewModel.FilteredFiles[i].FileName == selectFileName)
+                {
+                    FilesListBox.SelectedIndex = i;
+                    FilesListBox.ScrollIntoView(i);
+                    FilesListBox.ContainerFromIndex(i)?.Focus();
+                    return;
+                }
             }
         }
 
@@ -711,9 +661,7 @@ namespace ShadowONE
                 if (sourceIndex >= 0 && targetArchiveIndex != sourceIndex)
                 {
                     _oneFileService.MoveFileToIndex(sourceFileName, targetArchiveIndex);
-                    var entries = _oneFileService.GetFileEntries();
-                    _viewModel.LoadFiles(entries);
-                    UpdateWindowTitle();
+                    RefreshFileList();
                 }
 
                 return;
@@ -772,9 +720,7 @@ namespace ShadowONE
                     }
                 }
 
-                var entries = _oneFileService.GetFileEntries();
-                _viewModel.LoadFiles(entries);
-                UpdateWindowTitle();
+                RefreshFileList();
             }
             catch (Exception ex)
             {
@@ -838,9 +784,7 @@ namespace ShadowONE
             var dialog = new RwVersionEditorWindow(selectedFile, (version, major, minor, revision, buildNumber) =>
             {
                 _oneFileService.UpdateRwVersion(selectedFile.FileName, version, major, minor, revision, buildNumber);
-                var entries = _oneFileService.GetFileEntries();
-                _viewModel.LoadFiles(entries);
-                UpdateWindowTitle();
+                RefreshFileList();
             });
 
             await dialog.ShowDialog(this);
@@ -896,9 +840,7 @@ namespace ShadowONE
             var dialog = new RwVersionEditorWindow(dummyEntry, (version, major, minor, revision, buildNumber) =>
             {
                 _oneFileService.SetAllFileRwVersion(version, major, minor, revision, buildNumber);
-                var entries = _oneFileService.GetFileEntries();
-                _viewModel.LoadFiles(entries);
-                UpdateWindowTitle();
+                RefreshFileList();
             });
 
             await dialog.ShowDialog(this);
@@ -979,9 +921,7 @@ namespace ShadowONE
                 return;
             }
 
-            var entries = _oneFileService.GetFileEntries();
-            _viewModel.LoadFiles(entries);
-            UpdateWindowTitle();
+            RefreshFileList();
         }
 
         private bool IsTextInputFocused()
