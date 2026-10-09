@@ -37,6 +37,9 @@
                 <MenuItem Header="Set All File RW Version" Name="SetAllFileRwVersionMenuItem" Click="SetAllFileRwVersion_Click"/>
                 <MenuItem Header="Sort by Extensions" Name="SortByExtensionsMenuItem" Click="SortByExtensions_Click"/>
             </MenuItem>
+            <MenuItem Header="_Options">
+                <MenuItem Header="File Picker Starts At Opened File" Name="FilePickerStartsAtOpenedFileMenuItem" ToggleType="CheckBox" Click="FilePickerStartsAtOpenedFile_Click"/>
+            </MenuItem>
             <MenuItem Header="_About" Name="AboutMenuItem" Click="About_Click"/>
         </Menu>
 

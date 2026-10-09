@@ -56,6 +56,7 @@ namespace ShadowONE
 
             LoadIcon();
             UpdateWindowTitle();
+            FilePickerStartsAtOpenedFileMenuItem.IsChecked = AppSettings.FilePickerStartsAtOpenedFile;
         }
 
         private void LoadIcon()
@@ -234,7 +235,7 @@ namespace ShadowONE
 
         private async Task<IStorageFolder?> GetSuggestedStartLocation()
         {
-            if (!string.IsNullOrEmpty(_lastDialogFolder))
+            if (!AppSettings.FilePickerStartsAtOpenedFile && !string.IsNullOrEmpty(_lastDialogFolder))
                 return await StorageProvider.TryGetFolderFromPathAsync(_lastDialogFolder);
 
             return await TryGetStorageFolderFromPath(_currentFilePath);
@@ -996,6 +997,11 @@ namespace ShadowONE
                     e.Handled = true;
                 }
             }
+        }
+
+        private void FilePickerStartsAtOpenedFile_Click(object? sender, RoutedEventArgs e)
+        {
+            AppSettings.FilePickerStartsAtOpenedFile = FilePickerStartsAtOpenedFileMenuItem.IsChecked;
         }
 
         private async void About_Click(object? sender, RoutedEventArgs e)

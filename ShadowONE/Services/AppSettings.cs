@@ -14,6 +14,7 @@ namespace ShadowONE.Services
     public static class AppSettings
     {
         private const string FileAssociationKey = "file_association";
+        private const string FilePickerStartsAtOpenedFileKey = "file_picker_starts_at_opened_file";
 
         private static string? GetSettingsPath()
         {
@@ -34,6 +35,12 @@ namespace ShadowONE.Services
                 };
             }
             set => WriteValue(FileAssociationKey, value.ToString().ToLowerInvariant());
+        }
+
+        public static bool FilePickerStartsAtOpenedFile
+        {
+            get => ReadValue(FilePickerStartsAtOpenedFileKey)?.ToLowerInvariant() == "true";
+            set => WriteValue(FilePickerStartsAtOpenedFileKey, value ? "true" : "false");
         }
 
         private static string? ReadValue(string key)
