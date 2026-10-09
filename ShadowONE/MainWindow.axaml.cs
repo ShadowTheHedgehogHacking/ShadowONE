@@ -121,14 +121,22 @@ namespace ShadowONE
             }
 
             await Task.Delay(300); // Wayland moment (even if using XWayland, need this to not pop in wrong spot)
-            switch (await ShowFileAssociationDialog())
+            await ApplyFileAssociationPreferenceAsync(await ShowFileAssociationDialog());
+        }
+
+        private async Task ApplyFileAssociationPreferenceAsync(FileAssociationMode choice)
+        {
+            switch (choice)
             {
                 case FileAssociationMode.Yes:
                     AppSettings.FileAssociation = FileAssociationMode.Yes;
-                    FileAssociationService.Register();
+                    await Task.Run(FileAssociationService.Register);
                     break;
                 case FileAssociationMode.Never:
                     AppSettings.FileAssociation = FileAssociationMode.Never;
+                    break;
+                case FileAssociationMode.Ask:
+                    AppSettings.FileAssociation = FileAssociationMode.Ask;
                     break;
             }
         }
@@ -1002,6 +1010,11 @@ namespace ShadowONE
         private void FilePickerStartsAtOpenedFile_Click(object? sender, RoutedEventArgs e)
         {
             AppSettings.FilePickerStartsAtOpenedFile = FilePickerStartsAtOpenedFileMenuItem.IsChecked;
+        }
+
+        private async void FileAssociation_Click(object? sender, RoutedEventArgs e)
+        {
+            await ApplyFileAssociationPreferenceAsync(await ShowFileAssociationDialog());
         }
 
         private async void About_Click(object? sender, RoutedEventArgs e)

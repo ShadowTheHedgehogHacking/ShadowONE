@@ -39,6 +39,7 @@
             </MenuItem>
             <MenuItem Header="_Options">
                 <MenuItem Header="File Picker Starts At Opened File" Name="FilePickerStartsAtOpenedFileMenuItem" ToggleType="CheckBox" Click="FilePickerStartsAtOpenedFile_Click"/>
+                <MenuItem Header="Set File _Association..." Name="FileAssociationMenuItem" Click="FileAssociation_Click"/>
             </MenuItem>
             <MenuItem Header="_About" Name="AboutMenuItem" Click="About_Click"/>
         </Menu>
