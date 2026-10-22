@@ -15,6 +15,8 @@ namespace ShadowONE.Services
     {
         private const string FileAssociationKey = "file_association";
         private const string FilePickerStartsAtOpenedFileKey = "file_picker_starts_at_opened_file";
+        private const string CheckForUpdatesOnStartupKey = "check_for_updates_on_startup";
+        private const string LastUpdateCheckKey = "last_update_check";
 
         private static string? GetSettingsPath()
         {
@@ -41,6 +43,20 @@ namespace ShadowONE.Services
         {
             get => ReadValue(FilePickerStartsAtOpenedFileKey)?.ToLowerInvariant() == "true";
             set => WriteValue(FilePickerStartsAtOpenedFileKey, value ? "true" : "false");
+        }
+
+        public static bool CheckForUpdatesOnStartup
+        {
+            get => ReadValue(CheckForUpdatesOnStartupKey)?.ToLowerInvariant() != "false";
+            set => WriteValue(CheckForUpdatesOnStartupKey, value ? "true" : "false");
+        }
+
+        public static DateTimeOffset LastUpdateCheck
+        {
+            get => long.TryParse(ReadValue(LastUpdateCheckKey), out var seconds)
+                ? DateTimeOffset.FromUnixTimeSeconds(seconds)
+                : DateTimeOffset.MinValue;
+            set => WriteValue(LastUpdateCheckKey, value.ToUnixTimeSeconds().ToString());
         }
 
         private static string? ReadValue(string key)

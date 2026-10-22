@@ -40,8 +40,12 @@
             <MenuItem Header="_Options">
                 <MenuItem Header="File Picker Starts At Opened File" Name="FilePickerStartsAtOpenedFileMenuItem" ToggleType="CheckBox" Click="FilePickerStartsAtOpenedFile_Click"/>
                 <MenuItem Header="Set File _Association..." Name="FileAssociationMenuItem" Click="FileAssociation_Click"/>
+                <Separator/>
+                <MenuItem Header="Check for Updates on Startup" Name="CheckForUpdatesOnStartupMenuItem" ToggleType="CheckBox" Click="CheckForUpdatesOnStartup_Click"/>
+                <MenuItem Header="Check for _Updates Now" Name="CheckForUpdatesNowMenuItem" Click="CheckForUpdatesNow_Click"/>
+                <Separator/>
+                <MenuItem Header="_About..." Name="AboutMenuItem" Click="About_Click"/>
             </MenuItem>
-            <MenuItem Header="_About" Name="AboutMenuItem" Click="About_Click"/>
         </Menu>
 
         <Border Grid.Row="1" Padding="10" BorderThickness="0,0,0,1">

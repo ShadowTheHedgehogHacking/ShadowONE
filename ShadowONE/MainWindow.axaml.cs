@@ -57,6 +57,8 @@ namespace ShadowONE
             LoadIcon();
             UpdateWindowTitle();
             FilePickerStartsAtOpenedFileMenuItem.IsChecked = AppSettings.FilePickerStartsAtOpenedFile;
+            CheckForUpdatesOnStartupMenuItem.IsChecked = AppSettings.CheckForUpdatesOnStartup;
+            CheckForUpdatesNowMenuItem.IsEnabled = UpdateChecker.IsSupported;
         }
 
         private void LoadIcon()
@@ -98,6 +100,78 @@ namespace ShadowONE
         {
             base.OnOpened(e);
             await CheckFileAssociationAsync();
+            await CheckForUpdatesOnStartupAsync();
+        }
+
+        private async Task CheckForUpdatesOnStartupAsync()
+        {
+            if (!UpdateChecker.IsSupported || !AppSettings.CheckForUpdatesOnStartup || !UpdateChecker.IsCheckDue())
+            {
+                return;
+            }
+
+            var (result, remoteVersion) = await UpdateChecker.CheckAsync();
+            if (result == UpdateCheckResult.UpdateAvailable)
+            {
+                await ShowUpdateDialog(result, remoteVersion);
+            }
+        }
+
+        private async Task ShowUpdateDialog(UpdateCheckResult result, Version? remoteVersion)
+        {
+            var message = result switch
+            {
+                UpdateCheckResult.UpdateAvailable => $"A new version of ShadowONE is available ({remoteVersion}).{Environment.NewLine}You are running {UpdateChecker.LocalVersion}.",
+                UpdateCheckResult.UpToDate => $"ShadowONE is up to date ({UpdateChecker.LocalVersion}).",
+                _ => "Failed to check for updates."
+            };
+
+            var dialog = new Window
+            {
+                Title = "Check for Updates",
+                Width = 360,
+                Height = 130,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
+            };
+            WindowsTitleBarHelper.SetDarkTitleBar(dialog);
+
+            var panel = new StackPanel { Margin = new Thickness(15), Spacing = 15 };
+            panel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap });
+
+            var buttonPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Spacing = 10
+            };
+
+            var closeButton = new Button { Content = "Close", MinWidth = 100 };
+            closeButton.Click += (_, _) => dialog.Close();
+            var focusButton = closeButton;
+
+            if (result == UpdateCheckResult.UpdateAvailable)
+            {
+                var downloadButton = new Button { Content = "Open Download Page", MinWidth = 100 };
+                downloadButton.Click += async (_, _) =>
+                {
+                    if (GetTopLevel(this)?.Launcher is { } launcher)
+                    {
+                        await launcher.LaunchUriAsync(new Uri(UpdateChecker.VisitUrl));
+                    }
+                    dialog.Close();
+                };
+                buttonPanel.Children.Add(downloadButton);
+                focusButton = downloadButton;
+            }
+
+            buttonPanel.Children.Add(closeButton);
+            panel.Children.Add(buttonPanel);
+
+            dialog.Content = panel;
+            focusButton.AttachedToVisualTree += (_, _) => focusButton.Focus();
+
+            await dialog.ShowDialog(this);
         }
 
         private async Task CheckFileAssociationAsync()
@@ -1015,6 +1089,19 @@ namespace ShadowONE
         private async void FileAssociation_Click(object? sender, RoutedEventArgs e)
         {
             await ApplyFileAssociationPreferenceAsync(await ShowFileAssociationDialog());
+        }
+
+        private void CheckForUpdatesOnStartup_Click(object? sender, RoutedEventArgs e)
+        {
+            AppSettings.CheckForUpdatesOnStartup = CheckForUpdatesOnStartupMenuItem.IsChecked;
+        }
+
+        private async void CheckForUpdatesNow_Click(object? sender, RoutedEventArgs e)
+        {
+            CheckForUpdatesNowMenuItem.IsEnabled = false;
+            var (result, remoteVersion) = await UpdateChecker.CheckAsync();
+            CheckForUpdatesNowMenuItem.IsEnabled = true;
+            await ShowUpdateDialog(result, remoteVersion);
         }
 
         private async void About_Click(object? sender, RoutedEventArgs e)
