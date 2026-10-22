@@ -1,5 +1,8 @@
 name: 🔨 Build
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
@@ -17,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Get Short SHA
         id: get-short-sha
@@ -40,7 +43,7 @@ jobs:
         shell: pwsh
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -62,13 +65,27 @@ jobs:
           name: ShadowONE-${{ steps.get-short-sha.outputs.short_sha }}-windows
           path: ShadowONE\bin\Release\net10.0\win-x64\publish
 
+      - name: Package release
+        if: github.ref_type == 'tag'
+        run: |
+          $dir = "ShadowONE-${{ github.ref_name }}"
+          Copy-Item -Recurse ShadowONE\bin\Release\net10.0\win-x64\publish $dir
+          7z a -t7z -mx=9 "$dir-windows.7z" $dir
+        shell: pwsh
+
+      - name: Upload to GitHub Releases
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ShadowONE-${{ github.ref_name }}-windows.7z
+
   build-linux:
     runs-on: ubuntu-24.04
     name: 🐧 Linux x86_64
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Get Short SHA
         id: get-short-sha
@@ -83,7 +100,7 @@ jobs:
         run: sed -i 's/SHADOWONE_BUILDVERSION/${{ github.ref_name }}/' ShadowONE/VersionInfo.cs
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -102,3 +119,16 @@ jobs:
         with:
           name: ShadowONE-${{ steps.get-short-sha.outputs.short_sha }}-linux
           path: ShadowONE/bin/Release/net10.0/linux-x64/publish
+
+      - name: Package release
+        if: github.ref_type == 'tag'
+        run: |
+          dir="ShadowONE-${{ github.ref_name }}"
+          cp -a ShadowONE/bin/Release/net10.0/linux-x64/publish "$dir"
+          7z a -t7z -mx=9 "$dir-linux.7z" "$dir"
+
+      - name: Upload to GitHub Releases
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ShadowONE-${{ github.ref_name }}-linux.7z
