@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -465,6 +466,12 @@ namespace ShadowONE
 
         private async void Rename_Click(object? sender, RoutedEventArgs e)
         {
+            if (GetSelectedFiles().Count > 1)
+            {
+                await ShowError("Select a single file to rename.");
+                return;
+            }
+
             if (FilesListBox.SelectedItem is not FileEntry selectedFile)
             {
                 await ShowError("No file selected.");
@@ -488,7 +495,8 @@ namespace ShadowONE
 
         private async void Replace_Click(object? sender, RoutedEventArgs e)
         {
-            if (FilesListBox.SelectedItem is not FileEntry selectedFile)
+            var selectedFiles = GetSelectedFiles();
+            if (selectedFiles.Count == 0)
             {
                 await ShowError("No file selected.");
                 return;
@@ -497,19 +505,18 @@ namespace ShadowONE
             var startFolder = await GetSuggestedStartLocation();
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                Title = "Select Replacement File",
+                Title = selectedFiles.Count == 1 ? "Select Replacement File" : $"Select Replacement File for {selectedFiles.Count} Files",
                 AllowMultiple = false,
                 SuggestedStartLocation = startFolder
             });
 
             if (files.Count > 0)
             {
-                var fileName = selectedFile.FileName;
                 _lastDialogFolder = Path.GetDirectoryName(files[0].Path.LocalPath);
                 try
                 {
-                    _oneFileService.ReplaceFile(selectedFile, files[0].Path.LocalPath);
-                    RefreshFileList(fileName);
+                    _oneFileService.ReplaceFiles(selectedFiles, files[0].Path.LocalPath);
+                    RefreshFileList(selectedFiles.Select(f => f.FileName));
                 }
                 catch (Exception ex)
                 {
@@ -520,12 +527,20 @@ namespace ShadowONE
 
         private async void Extract_Click(object? sender, RoutedEventArgs e)
         {
-            if (FilesListBox.SelectedItem is not FileEntry selectedFile)
+            var selectedFiles = GetSelectedFiles();
+            if (selectedFiles.Count == 0)
             {
                 await ShowError("No file selected.");
                 return;
             }
 
+            if (selectedFiles.Count > 1)
+            {
+                await ExtractSelectedToFolder(selectedFiles);
+                return;
+            }
+
+            var selectedFile = selectedFiles[0];
             var startFolder = await GetSuggestedStartLocation();
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
@@ -550,9 +565,34 @@ namespace ShadowONE
             }
         }
 
+        private async Task ExtractSelectedToFolder(List<FileEntry> selectedFiles)
+        {
+            var startFolder = await GetSuggestedStartLocation();
+            var folder = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = $"Select Extract Directory for {selectedFiles.Count} Files",
+                AllowMultiple = false,
+                SuggestedStartLocation = startFolder
+            });
+
+            if (folder.Count > 0)
+            {
+                try
+                {
+                    _lastDialogFolder = folder[0].Path.LocalPath;
+                    _oneFileService.ExtractFiles(selectedFiles, folder[0].Path.LocalPath);
+                }
+                catch (Exception ex)
+                {
+                    await ShowError($"Error extracting files: {ex.Message}");
+                }
+            }
+        }
+
         private async void Delete_Click(object? sender, RoutedEventArgs e)
         {
-            if (FilesListBox.SelectedItem is not FileEntry selectedFile)
+            var selectedFiles = GetSelectedFiles();
+            if (selectedFiles.Count == 0)
             {
                 await ShowError("No file selected.");
                 return;
@@ -560,7 +600,7 @@ namespace ShadowONE
 
             try
             {
-                _oneFileService.DeleteFile(selectedFile);
+                _oneFileService.DeleteFiles(selectedFiles);
                 RefreshFileList();
             }
             catch (Exception ex)
@@ -571,49 +611,97 @@ namespace ShadowONE
 
         private void MoveUp_Click(object? sender, RoutedEventArgs e)
         {
-            if (FilesListBox.SelectedItem is not FileEntry selectedFile)
+            var selectedFiles = GetSelectedFiles();
+            if (selectedFiles.Count == 0)
             {
                 return;
             }
 
-            if (_oneFileService.MoveFileUp(selectedFile))
+            if (_oneFileService.MoveFilesUp(selectedFiles))
             {
-                RefreshFileList(selectedFile.FileName);
+                RefreshFileList(selectedFiles.Select(f => f.FileName));
             }
         }
 
         private void MoveDown_Click(object? sender, RoutedEventArgs e)
         {
-            if (FilesListBox.SelectedItem is not FileEntry selectedFile)
+            var selectedFiles = GetSelectedFiles();
+            if (selectedFiles.Count == 0)
             {
                 return;
             }
 
-            if (_oneFileService.MoveFileDown(selectedFile))
+            if (_oneFileService.MoveFilesDown(selectedFiles))
             {
-                RefreshFileList(selectedFile.FileName);
+                RefreshFileList(selectedFiles.Select(f => f.FileName));
             }
+        }
+
+        private List<FileEntry> GetSelectedFiles()
+        {
+            if (FilesListBox.SelectedItems == null)
+            {
+                return [];
+            }
+
+            return FilesListBox.SelectedItems
+                .OfType<FileEntry>()
+                .OrderBy(f => _oneFileService.GetFileIndex(f.FileName))
+                .ToList();
+        }
+
+        private void FilesContextMenu_Opening(object? sender, CancelEventArgs e)
+        {
+            var count = GetSelectedFiles().Count;
+            if (count == 0)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            var suffix = count > 1 ? $" {count} Files" : "";
+            ContextRenameMenuItem.IsEnabled = count == 1;
+            ContextExtractMenuItem.Header = $"_Extract{suffix} (Ctrl+E)";
+            ContextReplaceMenuItem.Header = $"_Replace{suffix} (Ctrl+R)";
+            ContextDeleteMenuItem.Header = $"_Delete{suffix} (Del)";
+            ContextEditRwVersionMenuItem.Header = $"Edit _RW Version{suffix}";
         }
 
         private void RefreshFileList(string? selectFileName = null)
         {
+            RefreshFileList(selectFileName == null ? [] : [selectFileName]);
+        }
+
+        private void RefreshFileList(IEnumerable<string> selectFileNames)
+        {
             _viewModel.LoadFiles(_oneFileService.GetFileEntries());
             UpdateWindowTitle();
 
-            if (selectFileName == null)
+            var names = selectFileNames.ToHashSet();
+            if (names.Count == 0)
             {
                 return;
             }
 
+            var firstIndex = -1;
+            FilesListBox.Selection.BeginBatchUpdate();
             for (var i = 0; i < _viewModel.FilteredFiles.Count; i++)
             {
-                if (_viewModel.FilteredFiles[i].FileName == selectFileName)
+                if (names.Contains(_viewModel.FilteredFiles[i].FileName))
                 {
-                    FilesListBox.SelectedIndex = i;
-                    FilesListBox.ScrollIntoView(i);
-                    FilesListBox.ContainerFromIndex(i)?.Focus();
-                    return;
+                    FilesListBox.Selection.Select(i);
+                    if (firstIndex < 0)
+                    {
+                        firstIndex = i;
+                    }
                 }
+            }
+            FilesListBox.Selection.EndBatchUpdate();
+
+            if (firstIndex >= 0)
+            {
+                FilesListBox.ScrollIntoView(firstIndex);
+                FilesListBox.ContainerFromIndex(firstIndex)?.Focus();
             }
         }
 
@@ -858,16 +946,31 @@ namespace ShadowONE
 
         private async void EditRWVersion_Click(object? sender, RoutedEventArgs e)
         {
-            if (FilesListBox.SelectedItem is not FileEntry selectedFile)
+            var selectedFiles = GetSelectedFiles();
+            if (selectedFiles.Count == 0)
             {
                 await ShowError("No file selected.");
                 return;
             }
 
-            var dialog = new RwVersionEditorWindow(selectedFile, (version, major, minor, revision, buildNumber) =>
+            var first = selectedFiles[0];
+            var editEntry = selectedFiles.Count == 1 ? first : new FileEntry
             {
-                _oneFileService.UpdateRwVersion(selectedFile.FileName, version, major, minor, revision, buildNumber);
-                RefreshFileList();
+                FileName = $"({selectedFiles.Count} Files)",
+                RwVersion = first.RwVersion,
+                RwMajor = first.RwMajor,
+                RwMinor = first.RwMinor,
+                RwRevision = first.RwRevision,
+                RwBuildNumber = first.RwBuildNumber
+            };
+
+            var dialog = new RwVersionEditorWindow(editEntry, (version, major, minor, revision, buildNumber) =>
+            {
+                foreach (var file in selectedFiles)
+                {
+                    _oneFileService.UpdateRwVersion(file.FileName, version, major, minor, revision, buildNumber);
+                }
+                RefreshFileList(selectedFiles.Select(f => f.FileName));
             });
 
             await dialog.ShowDialog(this);

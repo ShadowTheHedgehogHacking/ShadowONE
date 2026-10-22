@@ -67,7 +67,7 @@
                 
                 <ListBox x:Name="FilesListBox" 
                           ItemsSource="{Binding FilteredFiles}"
-                          SelectionMode="Single,Toggle"
+                          SelectionMode="Multiple"
                           IsVisible="{Binding HasFileOpen}"
                           ScrollViewer.HorizontalScrollBarVisibility="Auto"
                           Padding="0,0,15,0"
@@ -96,7 +96,7 @@
                     </ListBox.ItemTemplate>
                     
                     <ListBox.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu Opening="FilesContextMenu_Opening">
                             <MenuItem Header="Move _Up (Shift+W)" Name="ContextMoveUpMenuItem" Click="MoveUp_Click"/>
                             <MenuItem Header="Move _Down (Shift+S)" Name="ContextMoveDownMenuItem" Click="MoveDown_Click"/>
                             <Separator/>

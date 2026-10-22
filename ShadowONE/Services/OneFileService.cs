@@ -159,6 +159,22 @@ namespace ShadowONE.Services
             }
         }
 
+        public void ExtractFiles(IEnumerable<FileEntry> entries, string outputDirectory)
+        {
+            if (_currentArchive == null)
+            {
+                throw new InvalidOperationException("No file is currently open");
+            }
+
+            Directory.CreateDirectory(outputDirectory);
+
+            foreach (var entry in entries)
+            {
+                var outputPath = Path.Combine(outputDirectory, entry.FileName);
+                File.WriteAllBytes(outputPath, ExtractFile(entry));
+            }
+        }
+
         // <temp>/ShadowONE/<processId>/
         private static string GetTempRootDirectory()
         {
@@ -371,7 +387,7 @@ namespace ShadowONE.Services
             _isDirty = true;
         }
 
-        public void ReplaceFile(FileEntry entry, string replacementFilePath)
+        public void ReplaceFiles(IEnumerable<FileEntry> entries, string replacementFilePath)
         {
             if (_currentArchive == null)
             {
@@ -383,29 +399,34 @@ namespace ShadowONE.Services
                 throw new FileNotFoundException($"Replacement file not found: {replacementFilePath}");
             }
 
-            var fileData = File.ReadAllBytes(replacementFilePath);
-            var file = _currentArchive.Files.FirstOrDefault(f => f.Name == entry.FileName);
-
-            if (file != null)
+            var compressedData = Prs.CompressData(File.ReadAllBytes(replacementFilePath)).ToArray();
+            foreach (var entry in entries)
             {
-                file.CompressedData = Prs.CompressData(fileData);
-                _modifiedFiles.Add(entry.FileName);
-                _isDirty = true;
+                var file = _currentArchive.Files.FirstOrDefault(f => f.Name == entry.FileName);
+                if (file != null)
+                {
+                    file.CompressedData = compressedData.ToArray();
+                    _modifiedFiles.Add(entry.FileName);
+                    _isDirty = true;
+                }
             }
         }
 
-        public void DeleteFile(FileEntry entry)
+        public void DeleteFiles(IEnumerable<FileEntry> entries)
         {
             if (_currentArchive == null)
             {
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            var file = _currentArchive.Files.FirstOrDefault(f => f.Name == entry.FileName);
-            if (file != null)
+            foreach (var entry in entries)
             {
-                _currentArchive.Files.Remove(file);
-                _isDirty = true;
+                var file = _currentArchive.Files.FirstOrDefault(f => f.Name == entry.FileName);
+                if (file != null)
+                {
+                    _currentArchive.Files.Remove(file);
+                    _isDirty = true;
+                }
             }
         }
 
@@ -607,41 +628,60 @@ namespace ShadowONE.Services
             return null;
         }
 
-        public bool MoveFileUp(FileEntry entry)
+        public bool MoveFilesUp(IEnumerable<FileEntry> entries)
         {
-            return SwapWithNeighbor(entry, -1);
+            return MoveFiles(entries, -1);
         }
 
-        public bool MoveFileDown(FileEntry entry)
+        public bool MoveFilesDown(IEnumerable<FileEntry> entries)
         {
-            return SwapWithNeighbor(entry, 1);
+            return MoveFiles(entries, 1);
         }
 
-        private bool SwapWithNeighbor(FileEntry entry, int direction)
+        private bool MoveFiles(IEnumerable<FileEntry> entries, int direction)
         {
             if (_currentArchive == null)
             {
                 throw new InvalidOperationException("No file is currently open");
             }
 
-            var index = GetFileIndex(entry.FileName);
-            var otherIndex = index + direction;
-            if (index < 0 || otherIndex < 0 || otherIndex >= _currentArchive.Files.Count)
+            var names = entries.Select(e => e.FileName).ToHashSet();
+            var indices = Enumerable.Range(0, _currentArchive.Files.Count)
+                .Where(i => names.Contains(_currentArchive.Files[i].Name))
+                .ToList();
+
+            if (direction > 0)
             {
-                return false;
+                indices.Reverse();
             }
 
-            var file = _currentArchive.Files[index];
-            var otherFile = _currentArchive.Files[otherIndex];
+            var blocked = new HashSet<int>();
+            var moved = false;
+            foreach (var index in indices)
+            {
+                var otherIndex = index + direction;
+                if (otherIndex < 0 || otherIndex >= _currentArchive.Files.Count || blocked.Contains(otherIndex))
+                {
+                    blocked.Add(index);
+                    continue;
+                }
 
-            _currentArchive.Files[index] = otherFile;
-            _currentArchive.Files[otherIndex] = file;
+                var file = _currentArchive.Files[index];
+                var otherFile = _currentArchive.Files[otherIndex];
 
-            _modifiedFiles.Add(file.Name);
-            _modifiedFiles.Add(otherFile.Name);
-            _isDirty = true;
+                _currentArchive.Files[index] = otherFile;
+                _currentArchive.Files[otherIndex] = file;
 
-            return true;
+                _modifiedFiles.Add(file.Name);
+                _modifiedFiles.Add(otherFile.Name);
+                moved = true;
+            }
+
+            if (moved)
+            {
+                _isDirty = true;
+            }
+            return moved;
         }
 
         private static void ApplyRWVersion(RWVersion rw, uint version, uint major, uint minor, uint revision, ushort buildNumber)
